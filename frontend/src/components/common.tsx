@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { RequestStatus } from "../api/types";
+import { XIcon } from "./icons";
 
 export function Toolbar({
   title,
@@ -26,7 +27,7 @@ export function Spinner() {
   );
 }
 
-export function EmptyState({ icon, title, hint }: { icon: string; title: string; hint?: string }) {
+export function EmptyState({ icon, title, hint }: { icon: ReactNode; title: string; hint?: string }) {
   return (
     <div className="empty-state">
       <div className="big">{icon}</div>
@@ -50,8 +51,8 @@ export function Modal({
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           {title}
-          <button onClick={onClose} style={{ fontSize: 18, color: "var(--text-dim)" }}>
-            ✕
+          <button onClick={onClose} style={{ color: "var(--text-dim)", display: "inline-flex" }} aria-label="Close">
+            <XIcon />
           </button>
         </div>
         <div className="modal-body">{children}</div>

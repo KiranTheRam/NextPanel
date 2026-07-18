@@ -14,6 +14,9 @@ class AppConfig(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 6995
     log_level: str = "INFO"
+    # VAPID contact claim sent with web-push deliveries (a mailto: URI push
+    # services can use to reach the operator about problems)
+    vapid_sub: str = "mailto:admin@nextpanel.local"
 
     @property
     def db_path(self) -> Path:

@@ -92,6 +92,21 @@ class Request(Base):
     decided_by: Mapped[User | None] = relationship(foreign_keys=[decided_by_id])
 
 
+class PushSubscription(Base):
+    """A browser/device push endpoint belonging to a signed-in user."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(String)
+    auth: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    user: Mapped[User] = relationship()
+
+
 class Setting(Base):
     __tablename__ = "settings"
 

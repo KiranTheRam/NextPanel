@@ -19,7 +19,7 @@ function AppConnection({
   setForm: (f: SettingsType) => void;
   saved: SettingsType;
 }) {
-  const [test, setTest] = useState<string | null>(null);
+  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
   const runTest = useMutation({
     mutationFn: () =>
       api.post<ConnectionTest>(`/settings/test/${app}`, {
@@ -27,8 +27,12 @@ function AppConnection({
         api_key: form[`${app}_api_key`],
       }),
     onSuccess: (d) =>
-      setTest(d.ok ? `✔ Connected — ${label} ${d.version}` : `✖ ${d.message}`),
-    onError: (e) => setTest(`✖ ${(e as Error).message}`),
+      setTest(
+        d.ok
+          ? { ok: true, text: `Connected — ${label} ${d.version}` }
+          : { ok: false, text: d.message },
+      ),
+    onError: (e) => setTest({ ok: false, text: (e as Error).message }),
   });
 
   // root folders can only be fetched with the *saved* connection
@@ -90,10 +94,8 @@ function AppConnection({
           Test Connection
         </button>
         {test && (
-          <span
-            style={{ fontSize: 13, color: test.startsWith("✔") ? "var(--success)" : "var(--danger)" }}
-          >
-            {test}
+          <span style={{ fontSize: 13, color: test.ok ? "var(--success)" : "var(--danger)" }}>
+            {test.text}
           </span>
         )}
       </div>

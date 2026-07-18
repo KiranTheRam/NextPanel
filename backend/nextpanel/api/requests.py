@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .. import settings_service
+from .. import push, settings_service
 from ..arr import ArrConflict, ArrError, client_for
 from ..db import get_session
 from ..models import MediaType, Request, RequestStatus, User
@@ -12,6 +12,10 @@ from ..status import refresh_request
 from .deps import get_current_user, require_admin
 
 router = APIRouter(prefix="/requests", tags=["requests"])
+
+# per-user cap on undecided requests, so one account can't flood the
+# admin queue on a publicly reachable instance
+MAX_PENDING_PER_USER = 25
 
 
 def _out(request: Request) -> RequestOut:
@@ -59,6 +63,20 @@ async def create_request(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
+    from sqlalchemy import func
+
+    pending_count = (await session.execute(
+        select(func.count(Request.id)).where(
+            Request.user_id == user.id,
+            Request.status == RequestStatus.PENDING,
+        )
+    )).scalar_one()
+    if pending_count >= MAX_PENDING_PER_USER and not user.is_admin:
+        raise HTTPException(
+            429, f"You already have {pending_count} pending requests — "
+            "wait for the admin to review them"
+        )
+
     existing = (await session.execute(
         select(Request).where(
             Request.media_type == body.media_type,
@@ -74,6 +92,7 @@ async def create_request(
             existing.note = ""
             existing.decided_by_id = None
             await session.commit()
+            push.notify_later(push.notify_admins_new_request(user.username, existing.title))
             return _out(await _load(session, existing.id))
         raise HTTPException(409, "Already requested")
     request = Request(
@@ -90,6 +109,7 @@ async def create_request(
     )
     session.add(request)
     await session.commit()
+    push.notify_later(push.notify_admins_new_request(user.username, request.title))
     return _out(await _load(session, request.id))
 
 
@@ -185,6 +205,9 @@ async def deny_request(
     request.note = body.reason.strip()
     request.decided_by_id = admin.id
     await session.commit()
+    push.notify_later(
+        push.notify_request_denied(request.user_id, request.title, request.note)
+    )
     return _out(await _load(session, request_id))
 
 

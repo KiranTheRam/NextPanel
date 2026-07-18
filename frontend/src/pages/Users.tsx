@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { User } from "../api/types";
 import { Modal, Spinner, Toggle, Toolbar } from "../components/common";
+import { PlusIcon, XIcon } from "../components/icons";
 
 function CreateUserModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -87,7 +88,7 @@ export default function Users({ me }: { me: User }) {
     <>
       <Toolbar title="Users">
         <button className="btn primary" onClick={() => setCreating(true)}>
-          + New User
+          <PlusIcon size={14} /> New User
         </button>
       </Toolbar>
       <div className="content">
@@ -96,6 +97,7 @@ export default function Users({ me }: { me: User }) {
             {error}
           </div>
         )}
+        <div className="table-wrap">
         <table className="data-table">
           <thead>
             <tr>
@@ -130,9 +132,10 @@ export default function Users({ me }: { me: User }) {
                     <button
                       className="btn icon-btn"
                       title="Delete user"
+                      aria-label="Delete user"
                       onClick={() => remove.mutate(u.id)}
                     >
-                      ✕
+                      <XIcon size={14} />
                     </button>
                   )}
                 </td>
@@ -140,6 +143,7 @@ export default function Users({ me }: { me: User }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
       {creating && <CreateUserModal onClose={() => setCreating(false)} />}
     </>

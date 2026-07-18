@@ -54,6 +54,12 @@ async def refresh_request(session: AsyncSession, request: Request, client: ArrCl
     # an ongoing series can gain new chapters after being fully downloaded;
     # let AVAILABLE drop back to PARTIALLY_AVAILABLE so the state stays honest
     if new_status != request.status:
+        if new_status == RequestStatus.AVAILABLE:
+            from . import push
+
+            push.notify_later(push.notify_request_available(
+                request.user_id, request.title, remote.total_count, request.media_type
+            ))
         request.status = new_status
         changed = True
     return changed

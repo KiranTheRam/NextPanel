@@ -13,6 +13,8 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
+    "pywebpush>=2.0",
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]

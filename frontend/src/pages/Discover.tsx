@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SearchResponse, SearchResult } from "../api/types";
 import { EmptyState, MediaBadge, Spinner, StatusPill, Toolbar } from "../components/common";
+import { SearchIcon } from "../components/icons";
 
 function ResultCard({ result }: { result: SearchResult }) {
   const queryClient = useQueryClient();
@@ -129,11 +130,11 @@ export default function Discover() {
 
         {isFetching && <Spinner />}
         {!isFetching && query && data && data.results.length === 0 && (
-          <EmptyState icon="⌕" title="No results" hint="Try another title or spelling." />
+          <EmptyState icon={<SearchIcon size={40} />} title="No results" hint="Try another title or spelling." />
         )}
         {!query && (
           <EmptyState
-            icon="⌕"
+            icon={<SearchIcon size={40} />}
             title="Search for something to request"
             hint="Manga results come from mangarr (MangaUpdates); comics from pullarr (ComicVine)."
           />

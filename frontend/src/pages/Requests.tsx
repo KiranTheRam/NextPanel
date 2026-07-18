@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { MediaRequest, User } from "../api/types";
 import { EmptyState, MediaBadge, Modal, Spinner, StatusPill, Toolbar } from "../components/common";
+import { CheckIcon, InboxIcon, RefreshIcon, XIcon } from "../components/icons";
+import NotificationsButton from "../components/NotificationsButton";
 
 function Progress({ request }: { request: MediaRequest }) {
   if (!request.total_count) return null;
@@ -51,6 +53,8 @@ function DenyModal({
 export default function Requests({ me }: { me: User }) {
   const queryClient = useQueryClient();
   const scope = me.is_admin ? "all" : "mine";
+  // admins land on the approval queue; switch to All for history
+  const [view, setView] = useState<"pending" | "all">(me.is_admin ? "pending" : "all");
   const { data, isLoading } = useQuery({
     queryKey: ["requests", scope],
     queryFn: () => api.get<MediaRequest[]>(`/requests?scope=${scope}`),
@@ -90,109 +94,141 @@ export default function Requests({ me }: { me: User }) {
     );
   }
 
+  const pendingCount = data.filter((r) => r.status === "pending").length;
+  const rows = me.is_admin && view === "pending"
+    ? data.filter((r) => r.status === "pending" || r.status === "failed")
+    : data;
+
   return (
     <>
-      <Toolbar title={me.is_admin ? "All Requests" : "My Requests"} />
+      <Toolbar title={me.is_admin ? "Requests" : "My Requests"}>
+        <NotificationsButton />
+      </Toolbar>
       <div className="content">
+        {me.is_admin && (
+          <div className="seg" style={{ display: "inline-flex", marginBottom: 16 }}>
+            <button
+              className={view === "pending" ? "active" : ""}
+              onClick={() => setView("pending")}
+            >
+              Needs Approval{pendingCount ? ` (${pendingCount})` : ""}
+            </button>
+            <button className={view === "all" ? "active" : ""} onClick={() => setView("all")}>
+              All Requests
+            </button>
+          </div>
+        )}
         {actionError && (
           <div className="error-banner" style={{ marginBottom: 12 }}>
             {actionError}
           </div>
         )}
-        {data.length === 0 ? (
-          <EmptyState
-            icon="≡"
-            title="No requests yet"
-            hint="Find something on the Discover page and request it."
-          />
+        {rows.length === 0 ? (
+          me.is_admin && view === "pending" ? (
+            <EmptyState
+              icon={<CheckIcon size={40} />}
+              title="Nothing waiting for approval"
+              hint="New requests from your users will show up here."
+            />
+          ) : (
+            <EmptyState
+              icon={<InboxIcon size={40} />}
+              title="No requests yet"
+              hint="Find something on the Discover page and request it."
+            />
+          )
         ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th></th>
-                <th>Title</th>
-                <th>Type</th>
-                {me.is_admin && <th>Requested By</th>}
-                <th>Status</th>
-                <th>Progress</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ width: 54 }}>
-                    {r.cover_url ? (
-                      <img className="request-cover" src={r.cover_url} alt="" loading="lazy" />
-                    ) : (
-                      <div className="request-cover" />
-                    )}
-                  </td>
-                  <td>
-                    <div style={{ fontWeight: 500 }}>
-                      {r.english_title || r.title}
-                      {r.year ? (
-                        <span style={{ color: "var(--text-faint)", fontWeight: 400 }}> ({r.year})</span>
-                      ) : null}
-                    </div>
-                    {r.note && (
-                      <div style={{ color: "var(--text-faint)", fontSize: 12 }}>{r.note}</div>
-                    )}
-                  </td>
-                  <td>
-                    <MediaBadge mediaType={r.media_type} />
-                  </td>
-                  {me.is_admin && <td>{r.username}</td>}
-                  <td>
-                    <StatusPill status={r.status} />
-                  </td>
-                  <td>
-                    <Progress request={r} />
-                  </td>
-                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    {me.is_admin && (r.status === "pending" || r.status === "failed") && (
-                      <>
-                        <button
-                          className="btn primary"
-                          style={{ marginRight: 6 }}
-                          disabled={approve.isPending}
-                          onClick={() => approve.mutate(r.id)}
-                        >
-                          {r.status === "failed" ? "Retry" : "Approve"}
-                        </button>
-                        {r.status === "pending" && (
-                          <button className="btn" onClick={() => setDenying(r)}>
-                            Deny
-                          </button>
-                        )}
-                      </>
-                    )}
-                    {(r.status === "processing" || r.status === "partially_available") && (
-                      <button
-                        className="btn icon-btn"
-                        title="Refresh status"
-                        disabled={refresh.isPending}
-                        onClick={() => refresh.mutate(r.id)}
-                      >
-                        ⟳
-                      </button>
-                    )}
-                    {(me.is_admin || r.status === "pending") && (
-                      <button
-                        className="btn icon-btn"
-                        title={me.is_admin ? "Remove request" : "Withdraw request"}
-                        disabled={withdraw.isPending}
-                        onClick={() => withdraw.mutate(r.id)}
-                        style={{ marginLeft: 6 }}
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </td>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Title</th>
+                  <th>Type</th>
+                  {me.is_admin && <th>Requested By</th>}
+                  <th>Status</th>
+                  <th>Progress</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td style={{ width: 54 }}>
+                      {r.cover_url ? (
+                        <img className="request-cover" src={r.cover_url} alt="" loading="lazy" />
+                      ) : (
+                        <div className="request-cover" />
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 500 }}>
+                        {r.english_title || r.title}
+                        {r.year ? (
+                          <span style={{ color: "var(--text-faint)", fontWeight: 400 }}> ({r.year})</span>
+                        ) : null}
+                      </div>
+                      {r.note && (
+                        <div style={{ color: "var(--text-faint)", fontSize: 12 }}>{r.note}</div>
+                      )}
+                    </td>
+                    <td>
+                      <MediaBadge mediaType={r.media_type} />
+                    </td>
+                    {me.is_admin && <td>{r.username}</td>}
+                    <td>
+                      <StatusPill status={r.status} />
+                    </td>
+                    <td>
+                      <Progress request={r} />
+                    </td>
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      {me.is_admin && (r.status === "pending" || r.status === "failed") && (
+                        <>
+                          <button
+                            className="btn primary"
+                            style={{ marginRight: 6 }}
+                            disabled={approve.isPending}
+                            onClick={() => approve.mutate(r.id)}
+                          >
+                            {r.status === "failed" ? "Retry" : "Approve"}
+                          </button>
+                          {r.status === "pending" && (
+                            <button className="btn" onClick={() => setDenying(r)}>
+                              Deny
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {(r.status === "processing" || r.status === "partially_available") && (
+                        <button
+                          className="btn icon-btn"
+                          title="Refresh status"
+                          aria-label="Refresh status"
+                          disabled={refresh.isPending}
+                          onClick={() => refresh.mutate(r.id)}
+                        >
+                          <RefreshIcon size={14} />
+                        </button>
+                      )}
+                      {(me.is_admin || r.status === "pending") && (
+                        <button
+                          className="btn icon-btn"
+                          title={me.is_admin ? "Remove request" : "Withdraw request"}
+                          aria-label={me.is_admin ? "Remove request" : "Withdraw request"}
+                          disabled={withdraw.isPending}
+                          onClick={() => withdraw.mutate(r.id)}
+                          style={{ marginLeft: 6 }}
+                        >
+                          <XIcon size={14} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
       {denying && <DenyModal request={denying} onClose={() => setDenying(null)} />}

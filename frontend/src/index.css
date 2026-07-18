@@ -1858,3 +1858,164 @@ h4.link-text:hover {
   background: var(--accent);
   color: #fff;
 }
+
+/* ---------- touch & app feel ---------- */
+
+button,
+a,
+input,
+select,
+.nav-item {
+  touch-action: manipulation; /* no double-tap-to-zoom delay */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn {
+  gap: 6px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border-radius: 6px;
+}
+
+.table-wrap .data-table {
+  min-width: 640px;
+}
+
+/* ---------- mobile layout ---------- */
+
+@media (max-width: 768px) {
+  /* iOS zooms into focused fields with font-size < 16px — keep every
+     input at 16px on small screens so the page never auto-zooms */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .app {
+    flex-direction: column-reverse;
+  }
+
+  /* the sidebar becomes a bottom tab bar */
+  .sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    flex-direction: row;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+    z-index: 60;
+  }
+
+  .sidebar-logo,
+  .sidebar-footer {
+    display: none;
+  }
+
+  .sidebar nav {
+    display: flex;
+    flex: 1;
+    padding-top: 0;
+  }
+
+  .nav-item {
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    padding: 8px 0 9px;
+    font-size: 10.5px;
+    border-left: none;
+    border-top: 3px solid transparent;
+    position: relative;
+  }
+
+  .nav-item.active {
+    border-top-color: var(--accent);
+    background: none;
+  }
+
+  .nav-item .icon {
+    width: auto;
+    display: inline-flex;
+  }
+
+  .nav-badge {
+    position: absolute;
+    top: 4px;
+    right: calc(50% - 22px);
+    margin-left: 0;
+    padding: 0 5px;
+    min-width: 16px;
+    line-height: 16px;
+  }
+
+  .main {
+    height: 100%;
+    padding-bottom: calc(54px + env(safe-area-inset-bottom));
+  }
+
+  .toolbar {
+    padding: 0 14px;
+    padding-top: env(safe-area-inset-top);
+    height: calc(var(--toolbar-height) + env(safe-area-inset-top));
+    min-height: calc(var(--toolbar-height) + env(safe-area-inset-top));
+  }
+
+  .toolbar h1 {
+    font-size: 17px;
+  }
+
+  .content {
+    padding: 14px;
+  }
+
+  .results-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .search-bar {
+    flex-wrap: wrap;
+  }
+
+  .search-bar input {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .btn-label {
+    display: none; /* icon-only buttons in tight toolbars */
+  }
+
+  .form-row {
+    flex-wrap: wrap;
+  }
+
+  .form-row label {
+    width: 100%;
+  }
+
+  .form-row input[type="text"],
+  .form-row input[type="password"],
+  .form-row select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .modal {
+    width: calc(100vw - 24px);
+    max-width: none;
+  }
+
+  .login-card {
+    width: calc(100vw - 32px);
+    max-width: 360px;
+  }
+}
