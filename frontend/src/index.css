@@ -1126,6 +1126,13 @@ h4.link-text:hover {
 @media (max-width: 768px) {
   :root {
     --bottom-nav-height: 56px;
+    /* Keep the bar itself flush with the screen edge, but use only the part
+       of the iPhone safe area needed to clear the home indicator. Applying
+       the full inset makes the tabs look like they float above the bottom. */
+    --bottom-nav-safe-padding: max(
+      0px,
+      calc(env(safe-area-inset-bottom, 0px) - 20px)
+    );
   }
 
   .app {
@@ -1176,7 +1183,7 @@ h4.link-text:hover {
     width: auto;
     min-width: 0;
     height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: var(--bottom-nav-safe-padding);
     flex-direction: row;
     border-right: none;
     border-top: 1px solid var(--border);
@@ -2005,7 +2012,7 @@ select,
     flex-direction: row;
     border-right: none;
     border-top: 1px solid var(--border);
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: var(--bottom-nav-safe-padding);
     z-index: 60;
   }
 
