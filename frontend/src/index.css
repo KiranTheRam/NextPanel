@@ -17,6 +17,25 @@
   --info: #5d9cec;
   --sidebar-width: 210px;
   --toolbar-height: 60px;
+
+  /* Form-control type scale. Every input/select/textarea must size itself
+     from one of these — never a literal px — because iOS Safari zooms the
+     whole page when a focused control is under 16px, and a per-rule px
+     value silently beats the mobile override on specificity. */
+  --control-font-size: 14px;
+  --control-font-size-sm: 13px;
+  --control-font-size-lg: 15px;
+}
+
+/* Touch devices: every control goes to 16px, the threshold below which iOS
+   auto-zooms on focus. Width alone is not the test — an iPad in landscape is
+   wider than 768px and zooms just the same. */
+@media (max-width: 768px), (pointer: coarse) {
+  :root {
+    --control-font-size: 16px;
+    --control-font-size-sm: 16px;
+    --control-font-size-lg: 16px;
+  }
 }
 
 * {
@@ -29,6 +48,11 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+html {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;  /* no reflow-zoom on orientation change */
 }
 
 body {
@@ -54,8 +78,10 @@ button {
 }
 
 input,
-select {
+select,
+textarea {
   font: inherit;
+  font-size: var(--control-font-size);
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -1102,10 +1128,8 @@ h4.link-text:hover {
     height: 100dvh;
   }
 
-  /* 16px inputs stop iOS Safari from zooming the page on focus */
   input,
   select {
-    font-size: 16px;
     min-height: 42px;
   }
 
@@ -1722,6 +1746,7 @@ h4.link-text:hover {
 
 .login-card input {
   width: 100%;
+  font-size: var(--control-font-size-sm);
 }
 
 .login-switch {
@@ -1836,7 +1861,7 @@ h4.link-text:hover {
 .search-bar input {
   flex: 1;
   max-width: 520px;
-  font-size: 15px;
+  font-size: var(--control-font-size-lg);
   padding: 10px 14px;
 }
 
@@ -1886,14 +1911,6 @@ select,
 /* ---------- mobile layout ---------- */
 
 @media (max-width: 768px) {
-  /* iOS zooms into focused fields with font-size < 16px — keep every
-     input at 16px on small screens so the page never auto-zooms */
-  input,
-  select,
-  textarea {
-    font-size: 16px;
-  }
-
   .app {
     flex-direction: column-reverse;
   }
@@ -2290,6 +2307,7 @@ select,
 .chapter-filter {
   flex: 1;
   min-width: 180px;
+  font-size: var(--control-font-size-sm);
   padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 4px;
