@@ -48,6 +48,10 @@ html,
 body,
 #root {
   height: 100%;
+  /* dvh tracks the mobile URL bar; the % above is the fallback for browsers
+     without it. Every height below this chain is a % of these, so the app
+     and the body can never disagree about where the bottom is. */
+  height: 100dvh;
 }
 
 html {
@@ -1125,7 +1129,7 @@ h4.link-text:hover {
   }
 
   .app {
-    height: 100dvh;
+    height: 100%;
   }
 
   input,
@@ -1923,7 +1927,6 @@ select,
     bottom: 0;
     width: 100%;
     min-width: 0;
-    height: auto;
     flex-direction: row;
     border-right: none;
     border-top: 1px solid var(--border);
@@ -1976,7 +1979,6 @@ select,
 
   .main {
     height: 100%;
-    padding-bottom: calc(54px + env(safe-area-inset-bottom));
   }
 
   .toolbar {
