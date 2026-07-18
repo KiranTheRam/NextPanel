@@ -125,7 +125,7 @@ async def test_request_visibility_and_withdrawal(client, admin):
     from nextpanel.main import app
 
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
     ) as other:
         await register_user(other, "reader")
         reader_req = await make_request(other, provider_id=2)
@@ -134,6 +134,8 @@ async def test_request_visibility_and_withdrawal(client, admin):
         assert [r["id"] for r in mine] == [reader_req["id"]]
 
         resp = await other.delete(f"/api/v1/requests/{admin_req['id']}")
+        assert resp.status_code == 403
+        resp = await other.post(f"/api/v1/requests/{admin_req['id']}/refresh")
         assert resp.status_code == 403
 
     everything = (await client.get("/api/v1/requests", params={"scope": "all"})).json()

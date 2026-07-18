@@ -58,7 +58,7 @@ async def test_password_reset_invalidates_sessions(client, admin):
     from nextpanel.main import app
 
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
     ) as reader:
         user = await register_user(reader)
         assert (await reader.get("/api/v1/auth/me")).status_code == 200
@@ -88,6 +88,51 @@ async def test_secure_cookie_behind_https_proxy(client):
     assert "SameSite=lax" in set_cookie
 
 
+async def test_secure_cookie_and_hsts_are_default(client):
+    resp = await client.get("/api/v1/auth/status")
+    assert resp.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
+    setup = await client.post(
+        "/api/v1/auth/setup", json={"username": "admin", "password": "hunter22"}
+    )
+    assert "Secure" in setup.headers["set-cookie"]
+
+
+async def test_login_global_limit_cannot_be_bypassed_with_forwarded_ip(client, admin, monkeypatch):
+    from nextpanel.api import auth
+
+    monkeypatch.setattr(auth, "LOGIN_GLOBAL_LIMIT", 2)
+    for username, ip in (("one", "198.51.100.1"), ("two", "198.51.100.2")):
+        resp = await client.post(
+            "/api/v1/auth/login",
+            json={"username": username, "password": "wrongpassword"},
+            headers={"X-Forwarded-For": ip},
+        )
+        assert resp.status_code == 401
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "three", "password": "wrongpassword"},
+        headers={"X-Forwarded-For": "198.51.100.3"},
+    )
+    assert resp.status_code == 429
+
+
+async def test_request_cover_url_is_allowlisted(client, admin):
+    resp = await client.post("/api/v1/requests", json={
+        "media_type": "manga", "provider": "mangaupdates", "provider_id": 123,
+        "title": "Example", "cover_url": "https://attacker.example/track.png",
+    })
+    assert resp.status_code == 201
+    assert resp.json()["cover_url"] == ""
+
+
+async def test_oversized_request_body_rejected(client):
+    resp = await client.post(
+        "/api/v1/auth/login", content=b"x" * (64 * 1024 + 1),
+        headers={"content-type": "application/json"},
+    )
+    assert resp.status_code == 413
+
+
 @respx.mock
 async def test_search_errors_hide_internal_urls(client, configured):
     respx.get("http://mangarr.test/api/v1/search/metadata").mock(
@@ -106,7 +151,7 @@ async def test_pending_request_cap(client, admin):
     from nextpanel.main import app
 
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
     ) as reader:
         await register_user(reader)
         for i in range(25):

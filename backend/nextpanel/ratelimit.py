@@ -10,6 +10,7 @@ import time
 from fastapi import HTTPException, Request
 
 _attempts: dict[str, list[float]] = {}
+MAX_TRACKED_KEYS = 10_000
 
 
 def client_ip(request: Request) -> str:
@@ -26,6 +27,14 @@ def client_ip(request: Request) -> str:
 def check(key: str, limit: int, window_seconds: float) -> None:
     """Record an attempt; raise 429 once `limit` attempts land in the window."""
     now = time.monotonic()
+    # Attackers can otherwise create an unbounded number of buckets by using
+    # random usernames.  Prune only when necessary to keep normal checks O(1).
+    if key not in _attempts and len(_attempts) >= MAX_TRACKED_KEYS:
+        stale_before = now - max(window_seconds, 60 * 60)
+        for old_key in [k for k, values in _attempts.items() if not values or values[-1] < stale_before]:
+            _attempts.pop(old_key, None)
+        if len(_attempts) >= MAX_TRACKED_KEYS:
+            raise HTTPException(429, "Too many attempts — try again later")
     stamps = [t for t in _attempts.get(key, []) if now - t < window_seconds]
     if len(stamps) >= limit:
         raise HTTPException(429, "Too many attempts — try again later")

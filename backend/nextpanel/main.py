@@ -33,19 +33,32 @@ app = FastAPI(title="NextPanel", version=__version__, lifespan=lifespan)
 # allows external https images (series covers) and inline style attributes
 # (React), nothing else beyond same-origin.
 _CSP = (
-    "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; "
+    "default-src 'self'; img-src 'self' data: https://*.anilist.co https://*.mangaupdates.com "
+    "https://*.mangadex.org https://*.mangadex.network https://*.gamespot.com; "
+    "style-src 'self' 'unsafe-inline'; "
     "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
     "form-action 'self'"
 )
+MAX_REQUEST_BODY_BYTES = 64 * 1024
 
 
 @app.middleware("http")
 async def security_headers(request, call_next):
+    # Reject oversized declared bodies before JSON parsing or password work.
+    # Cloudflare should enforce the same limit at the edge for chunked bodies.
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_REQUEST_BODY_BYTES:
+                return JSONResponse({"detail": "Request body too large"}, status_code=413)
+        except ValueError:
+            return JSONResponse({"detail": "Invalid Content-Length"}, status_code=400)
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("Content-Security-Policy", _CSP)
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
 
 

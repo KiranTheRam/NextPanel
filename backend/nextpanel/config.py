@@ -14,6 +14,10 @@ class AppConfig(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 6995
     log_level: str = "INFO"
+    # Public deployments terminate TLS before the application.  Keep this on
+    # by default so a proxy/configuration mistake cannot issue a reusable HTTP
+    # session cookie.  Set false only for local HTTP development.
+    session_cookie_secure: bool = True
     # VAPID contact claim sent with web-push deliveries (a mailto: URI push
     # services can use to reach the operator about problems)
     vapid_sub: str = "mailto:admin@nextpanel.local"

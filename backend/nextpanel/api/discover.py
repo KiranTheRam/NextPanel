@@ -11,6 +11,7 @@ from ..arr import ArrError, MangarrClient, PullarrClient
 from ..db import get_session
 from ..discover import DiscoverItem, fetch_section, normalize_title, sections_spec
 from ..models import MediaType, Request
+from ..security import safe_cover_url
 from .deps import get_current_user
 
 log = logging.getLogger(__name__)
@@ -82,7 +83,7 @@ def _manga_item_out(item: DiscoverItem) -> dict:
         "description": item.description,
         "status": item.status,
         "year": item.year,
-        "cover_url": item.cover_url,
+        "cover_url": safe_cover_url(item.cover_url),
         "score": item.score,
         "subtitle": "",
         "genres": item.genres,
@@ -105,7 +106,7 @@ def _comic_item_out(entry: dict) -> dict:
         "description": entry.get("issue_name") or "",
         "status": "",
         "year": year,
-        "cover_url": entry.get("cover_url") or "",
+        "cover_url": safe_cover_url(entry.get("cover_url") or ""),
         "score": None,
         "subtitle": entry.get("subtitle") or "",
         "genres": [],

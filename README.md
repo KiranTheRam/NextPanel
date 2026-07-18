@@ -142,6 +142,7 @@ Environment variables (all optional):
 | -------------------- | ------- | ----------------------------------- |
 | `NEXTPANEL_PORT`     | `6995`  | HTTP port                           |
 | `NEXTPANEL_DATA_DIR` | `data`  | SQLite DB location                  |
+| `NEXTPANEL_SESSION_COOKIE_SECURE` | `true` | Set `false` only for local HTTP development |
 
 Everything else (app URLs/keys, root folders, webhook secret, poll interval,
 registration) lives in the UI under Settings and is stored in the DB.

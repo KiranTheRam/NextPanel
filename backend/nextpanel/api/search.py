@@ -10,6 +10,7 @@ from ..arr import ArrClient, ArrError, MangarrClient, PullarrClient, SearchResul
 from ..db import get_session
 from ..models import MediaType, Request
 from ..schemas import SearchOut, SearchResultOut
+from ..security import safe_cover_url
 from .deps import get_current_user
 
 log = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ async def search(
                 status=r.status,
                 publisher=r.publisher,
                 year=r.year,
-                cover_url=r.cover_url,
+                cover_url=safe_cover_url(r.cover_url),
                 total_count=r.total_count,
                 in_library=r.in_library,
             )

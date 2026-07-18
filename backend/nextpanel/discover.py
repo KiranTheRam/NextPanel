@@ -16,6 +16,8 @@ from datetime import date
 
 import httpx
 
+from .security import safe_cover_url
+
 log = logging.getLogger(__name__)
 
 ANILIST_URL = "https://graphql.anilist.co"
@@ -130,7 +132,7 @@ def _to_item(media: dict) -> DiscoverItem:
         description=_clean_description(media.get("description")),
         status=(media.get("status") or "").lower(),
         year=(media.get("startDate") or {}).get("year"),
-        cover_url=cover.get("extraLarge") or cover.get("large") or "",
+        cover_url=safe_cover_url(cover.get("extraLarge") or cover.get("large") or ""),
         score=media.get("averageScore"),
         genres=media.get("genres") or [],
     )
