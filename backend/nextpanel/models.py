@@ -58,7 +58,9 @@ class RequestStatus(str, enum.Enum):
 class Request(Base):
     __tablename__ = "requests"
     __table_args__ = (
-        UniqueConstraint("media_type", "provider_id", name="ux_requests_media_provider"),
+        UniqueConstraint(
+            "media_type", "provider", "provider_id", name="ux_requests_media_provider"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

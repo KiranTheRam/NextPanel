@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -80,6 +81,7 @@ async def create_request(
     existing = (await session.execute(
         select(Request).where(
             Request.media_type == body.media_type,
+            Request.provider == body.provider,
             Request.provider_id == body.provider_id,
         )
     )).scalar_one_or_none()
@@ -108,7 +110,13 @@ async def create_request(
         description=body.description,
     )
     session.add(request)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # pre-provider-column databases enforce uniqueness on
+        # (media_type, provider_id) only — surface it as a duplicate
+        await session.rollback()
+        raise HTTPException(409, "Already requested") from None
     push.notify_later(push.notify_admins_new_request(user.username, request.title))
     return _out(await _load(session, request.id))
 
@@ -164,13 +172,14 @@ async def approve_request(
         remote_id = await client.add_series(
             request.provider_id,
             root_folder_id,
+            provider=request.provider,
             english_title=request.english_title,
             alt_titles=[t for t in request.alt_titles.split("\n") if t],
         )
     except ArrConflict:
         # already in the app's library — adopt the existing series
         try:
-            remote_id = await client.find_series_id(request.provider_id)
+            remote_id = await client.find_series_id(request.provider_id, request.provider)
         except ArrError as exc:
             raise HTTPException(502, str(exc)) from exc
         if remote_id is None:

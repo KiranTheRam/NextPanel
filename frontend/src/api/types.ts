@@ -77,3 +77,29 @@ export interface ConnectionTest {
   version: string;
   message: string;
 }
+
+export interface DiscoverItem {
+  media_type: MediaType;
+  provider: string;
+  provider_id: number;
+  title: string;
+  english_title: string;
+  description: string;
+  status: string;
+  year: number | null;
+  cover_url: string;
+  score: number | null;
+  subtitle: string;
+  genres: string[];
+}
+
+export interface DiscoverSection {
+  key: string;
+  title: string;
+  items: DiscoverItem[];
+}
+
+export interface DiscoverResponse {
+  sections: DiscoverSection[];
+  errors: Record<string, string>;
+}

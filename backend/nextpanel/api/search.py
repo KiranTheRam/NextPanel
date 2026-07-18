@@ -54,7 +54,7 @@ async def search(
 
     # annotate results with any existing NextPanel request for the same title
     existing = {
-        (r.media_type, r.provider_id): r
+        (r.media_type, r.provider, r.provider_id): r
         for r in (await session.execute(select(Request))).scalars().all()
     }
     results: list[SearchResultOut] = []
@@ -75,7 +75,7 @@ async def search(
                 total_count=r.total_count,
                 in_library=r.in_library,
             )
-            request = existing.get((r.media_type, r.provider_id))
+            request = existing.get((r.media_type, r.provider, r.provider_id))
             if request is not None:
                 out.request_id = request.id
                 out.request_status = request.status

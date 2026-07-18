@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import __version__, scheduler
-from .api import auth, push, requests, search, settings, users, webhooks
+from .api import auth, discover, push, requests, search, settings, users, webhooks
 from .config import config
 from .db import init_db
 
@@ -55,6 +55,7 @@ api = FastAPI()
 api.include_router(auth.router)
 api.include_router(push.router)
 api.include_router(search.router)
+api.include_router(discover.router)
 api.include_router(requests.router)
 api.include_router(users.router)
 api.include_router(settings.router)
