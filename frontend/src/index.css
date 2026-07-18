@@ -2041,22 +2041,39 @@ select,
   -webkit-overflow-scrolling: touch;
 }
 
+/* Every card is the same height and its rows line up across the row: the
+   poster is fixed, the title always reserves two lines, and the action sits
+   on the baseline no matter how short the text above it is. */
 .discover-card {
-  width: 150px;
-  min-width: 150px;
+  --poster-width: 150px;
+  --poster-height: 225px;
+  width: var(--poster-width);
+  min-width: var(--poster-width);
   display: flex;
   flex-direction: column;
   gap: 6px;
   scroll-snap-align: start;
 }
 
+.discover-card .poster {
+  position: relative;
+  width: var(--poster-width);
+  height: var(--poster-height);
+}
+
 .discover-card img,
 .discover-card .no-cover {
-  width: 150px;
-  height: 225px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   border-radius: 6px;
   background: var(--bg-surface);
+  display: block;
+}
+
+.discover-card:hover img {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .discover-card .no-cover {
@@ -2069,10 +2086,27 @@ select,
   padding: 8px;
 }
 
+.poster-flag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.poster-flag.green { background: var(--success); }
+.poster-flag.orange { background: var(--warning); color: #241a05; }
+
 .discover-card-title {
   font-size: 13px;
   font-weight: 500;
   line-height: 1.3;
+  /* two lines, always — a one-line title must not shorten the card */
+  height: calc(2 * 1.3em);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -2085,6 +2119,15 @@ select,
   gap: 8px;
   color: var(--text-faint);
   font-size: 12px;
+  min-height: 16px;
+}
+
+.discover-card-action {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .discover-score {
@@ -2092,16 +2135,263 @@ select,
   font-weight: 600;
 }
 
+.request-error {
+  color: var(--danger);
+  font-size: 11px;
+}
+
 @media (max-width: 768px) {
-  .discover-card,
-  .discover-card img,
-  .discover-card .no-cover {
-    width: 124px;
-    min-width: 124px;
+  .discover-card {
+    --poster-width: 124px;
+    --poster-height: 186px;
+  }
+}
+
+/* ---------- title detail page ---------- */
+
+.title-page {
+  max-width: 1000px;
+}
+
+.title-banner {
+  height: 160px;
+  margin: -24px -24px 0;
+  background-size: cover;
+  background-position: center 30%;
+  position: relative;
+}
+
+.title-banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(26, 29, 36, 0.35), var(--bg));
+}
+
+.title-header {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+
+.title-banner + .title-header {
+  margin-top: -60px;
+  position: relative;
+}
+
+.title-cover {
+  width: 170px;
+  min-width: 170px;
+  height: 255px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg-surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+.title-cover.no-cover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-size: 13px;
+  text-align: center;
+  padding: 10px;
+}
+
+.title-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.title-banner + .title-header .title-info {
+  padding-top: 68px;
+}
+
+.title-info h2 {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.title-alt {
+  color: var(--text-dim);
+  font-size: 13.5px;
+}
+
+.title-meta,
+.genre-row,
+.title-staff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.genre-chip {
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.title-staff strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.title-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+
+.panel h3 {
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+
+.panel-note {
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+
+.title-description {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.chapter-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.chapter-filter {
+  flex: 1;
+  min-width: 180px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.chapter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.chapter-count {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.chapter-list {
+  max-height: 460px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.chapter-row {
+  display: grid;
+  grid-template-columns: 88px 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.chapter-row:last-child {
+  border-bottom: none;
+}
+
+.chapter-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.chapter-number {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.chapter-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chapter-title em {
+  color: var(--text-faint);
+}
+
+.chapter-volume {
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.chapter-state {
+  display: inline-flex;
+  justify-content: flex-end;
+  min-width: 62px;
+}
+
+.downloaded-mark {
+  display: inline-flex;
+  color: var(--success);
+}
+
+@media (max-width: 768px) {
+  .title-header {
+    flex-direction: column;
   }
 
-  .discover-card img,
-  .discover-card .no-cover {
-    height: 186px;
+  .title-banner + .title-header {
+    margin-top: -40px;
+  }
+
+  .title-info,
+  .title-banner + .title-header .title-info {
+    padding-top: 0;
+  }
+
+  .title-cover {
+    width: 130px;
+    min-width: 130px;
+    height: 195px;
+  }
+
+  .chapter-row {
+    grid-template-columns: 70px 1fr auto;
+  }
+
+  .chapter-volume {
+    display: none;
   }
 }

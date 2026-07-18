@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import settings_service
 from ..arr import ArrError, MangarrClient, PullarrClient
 from ..db import get_session
-from ..discover import DiscoverItem, fetch_section, normalize_title, sections_spec
+from ..discover import DiscoverItem, fetch_section, sections_spec
+from ..library import LibraryIndex, load_index, normalize_title
 from ..models import MediaType, Request
 from ..security import safe_cover_url
 from .deps import get_current_user
@@ -26,51 +27,51 @@ COMIC_SECTIONS = [
 ]
 
 
-async def _hidden_sets(
-    session: AsyncSession, media_type: MediaType, provider: str
-) -> tuple[set[int], set[str]]:
-    """Provider ids and normalized titles already requested for a media type."""
-    ids: set[int] = set()
-    titles: set[str] = set()
-    result = await session.execute(
-        select(Request).where(Request.media_type == media_type)
-    )
-    for request in result.scalars().all():
-        if request.provider == provider:
-            ids.add(request.provider_id)
-        for title in (request.title, request.english_title):
-            if title and (n := normalize_title(title)):
-                titles.add(n)
-    return ids, titles
+class RequestIndex:
+    """Existing NextPanel requests, matchable by provider id or title.
+
+    Recommendation items carry an AniList id while a request may have been
+    created from a MangaUpdates search result (or vice versa), so the title
+    fallback matters as much as it does for the library.
+    """
+
+    def __init__(self, requests: list[Request]):
+        self.by_provider_id: dict[tuple[str, str, int], Request] = {}
+        self.by_title: dict[tuple[str, str], Request] = {}
+        for request in requests:
+            key = (request.media_type.value, request.provider, request.provider_id)
+            self.by_provider_id[key] = request
+            for title in (request.title, request.english_title):
+                if title and (n := normalize_title(title)):
+                    self.by_title.setdefault((request.media_type.value, n), request)
+
+    def find(self, media_type: str, provider: str, provider_id: int,
+             titles: list[str]) -> Request | None:
+        request = self.by_provider_id.get((media_type, provider, provider_id))
+        if request is not None:
+            return request
+        for title in titles:
+            if title and (request := self.by_title.get((media_type, normalize_title(title)))):
+                return request
+        return None
 
 
-async def _manga_hidden(session: AsyncSession, values: dict[str, str]) -> tuple[set[int], set[str]]:
-    """Requested manga plus everything in the mangarr library."""
-    ids, titles = await _hidden_sets(session, MediaType.MANGA, "anilist")
-    client = MangarrClient(values["mangarr_url"], values["mangarr_api_key"])
-    if client.configured:
-        try:
-            for series in await client.list_series():
-                if series.get("anilist_id"):
-                    ids.add(int(series["anilist_id"]))
-                names = [series.get("title", ""), series.get("english_title", "")]
-                names += (series.get("alt_titles") or "").split("\n")
-                for name in names:
-                    if name and (n := normalize_title(name)):
-                        titles.add(n)
-        except ArrError as exc:
-            # library unavailable -> can only filter by requests; fine
-            log.warning("mangarr library unavailable for discover filtering: %s", exc)
-    return ids, titles
+async def load_request_index(session: AsyncSession) -> RequestIndex:
+    result = await session.execute(select(Request))
+    return RequestIndex(list(result.scalars().all()))
 
 
-def _visible(item: DiscoverItem, hidden_ids: set[int], hidden_titles: set[str]) -> bool:
-    if item.provider_id in hidden_ids:
-        return False
-    for title in (item.title, item.english_title):
-        if title and normalize_title(title) in hidden_titles:
-            return False
-    return True
+def _annotate(item: dict, titles: list[str], library: LibraryIndex,
+              requests: RequestIndex) -> dict:
+    """Tag an item with what NextPanel already knows about it, so the UI can
+    show "In Library"/status instead of a Request button."""
+    series = library.find(item["provider"], item["provider_id"], titles)
+    item["in_library"] = series is not None
+    item["library_series_id"] = int(series["id"]) if series else None
+    request = requests.find(item["media_type"], item["provider"], item["provider_id"], titles)
+    item["request_id"] = request.id if request else None
+    item["request_status"] = request.status.value if request else None
+    return item
 
 
 def _manga_item_out(item: DiscoverItem) -> dict:
@@ -115,15 +116,18 @@ def _comic_item_out(entry: dict) -> dict:
 
 @router.get("")
 async def discover(session: AsyncSession = Depends(get_session)):
-    """Recommendation rows for the home page, with everything already in
-    the libraries or already requested filtered out. Manga rows come from
-    AniList; comic rows from ComicVine via pullarr."""
+    """Recommendation rows for the home page. Titles already in a library or
+    already requested are kept in place but marked, so the rows stay stable
+    and the user can see what they own. Manga rows come from AniList; comic
+    rows from ComicVine via pullarr."""
     values = await settings_service.get_all(session)
     errors: dict[str, str] = {}
     sections: list[dict] = []
+    requests = await load_request_index(session)
 
     # ---- manga (AniList) ----
-    manga_ids, manga_titles = await _manga_hidden(session, values)
+    mangarr = MangarrClient(values["mangarr_url"], values["mangarr_api_key"])
+    manga_library = await load_index(mangarr)
     specs = sections_spec()
 
     async def load_manga(spec: dict) -> list[DiscoverItem]:
@@ -136,18 +140,21 @@ async def discover(session: AsyncSession = Depends(get_session)):
 
     manga_results = await asyncio.gather(*(load_manga(spec) for spec in specs))
     for spec, items in zip(specs, manga_results):
-        visible = [i for i in items if _visible(i, manga_ids, manga_titles)]
-        if visible:
-            sections.append({
-                "key": spec["key"],
-                "title": spec["title"],
-                "items": [_manga_item_out(i) for i in visible[:MAX_ITEMS_PER_SECTION]],
-            })
+        if not items:
+            continue
+        sections.append({
+            "key": spec["key"],
+            "title": spec["title"],
+            "items": [
+                _annotate(_manga_item_out(i), i.titles, manga_library, requests)
+                for i in items[:MAX_ITEMS_PER_SECTION]
+            ],
+        })
 
     # ---- comics (ComicVine via pullarr) ----
     pullarr = PullarrClient(values["pullarr_url"], values["pullarr_api_key"])
     if pullarr.configured:
-        comic_ids, comic_titles = await _hidden_sets(session, MediaType.COMIC, "comicvine")
+        comic_library = await load_index(pullarr)
         for key, title, params in COMIC_SECTIONS:
             try:
                 entries = await pullarr.discover_releases(**params)
@@ -156,19 +163,12 @@ async def discover(session: AsyncSession = Depends(get_session)):
                 errors[key] = "pullarr could not be reached"
                 continue
             items = []
-            for entry in entries:
-                if entry.get("in_library"):
-                    continue
+            for entry in entries[:MAX_ITEMS_PER_SECTION]:
                 item = _comic_item_out(entry)
-                if item["provider_id"] in comic_ids:
-                    continue
-                if normalize_title(item["title"]) in comic_titles:
-                    continue
+                item = _annotate(item, [item["title"]], comic_library, requests)
+                # pullarr already knows whether the volume is shelved
+                item["in_library"] = item["in_library"] or bool(entry.get("in_library"))
                 items.append(item)
             if items:
-                sections.append({
-                    "key": key,
-                    "title": title,
-                    "items": items[:MAX_ITEMS_PER_SECTION],
-                })
+                sections.append({"key": key, "title": title, "items": items})
     return {"sections": sections, "errors": errors}

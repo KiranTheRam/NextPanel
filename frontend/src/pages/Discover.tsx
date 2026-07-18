@@ -1,72 +1,61 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { DiscoverItem, DiscoverResponse, SearchResponse, SearchResult } from "../api/types";
-import { EmptyState, MediaBadge, Spinner, StatusPill, Toolbar } from "../components/common";
+import { EmptyState, MediaBadge, Spinner, Toolbar } from "../components/common";
 import { SearchIcon } from "../components/icons";
+import RequestButton from "../components/RequestButton";
 
-function DiscoverCard({
-  item,
-  requested,
-  onRequested,
-}: {
-  item: DiscoverItem;
-  requested: boolean;
-  onRequested: (key: string) => void;
-}) {
-  const queryClient = useQueryClient();
-  const key = `${item.provider}-${item.provider_id}`;
-  const request = useMutation({
-    mutationFn: () =>
-      api.post("/requests", {
-        media_type: item.media_type,
-        provider: item.provider,
-        provider_id: item.provider_id,
-        title: item.title,
-        english_title: item.english_title,
-        year: item.year,
-        cover_url: item.cover_url,
-        description: item.description,
-      }),
-    onSuccess: () => {
-      onRequested(key);
-      queryClient.invalidateQueries({ queryKey: ["requests"] });
-    },
-  });
+export function titleHref(
+  item: { media_type: string; provider: string; provider_id: number; title: string },
+): string {
+  // the title hint lets providers without a by-id lookup (MangaUpdates,
+  // ComicVine) resolve the detail page from a cold URL
+  return `/title/${item.media_type}/${item.provider}/${item.provider_id}` +
+    `?title=${encodeURIComponent(item.title)}`;
+}
 
+function DiscoverCard({ item }: { item: DiscoverItem }) {
   const displayTitle = item.english_title || item.title;
   return (
-    <div className="discover-card">
-      {item.cover_url ? (
-        <img src={item.cover_url} alt="" loading="lazy" />
-      ) : (
-        <div className="no-cover">{displayTitle}</div>
-      )}
+    <Link className="discover-card" to={titleHref(item)}>
+      <div className="poster">
+        {item.cover_url ? (
+          <img src={item.cover_url} alt="" loading="lazy" />
+        ) : (
+          <div className="no-cover">{displayTitle}</div>
+        )}
+        {item.in_library && <span className="poster-flag green">In Library</span>}
+        {!item.in_library && item.request_status && (
+          <span className="poster-flag orange">Requested</span>
+        )}
+      </div>
       <div className="discover-card-title" title={displayTitle}>
         {displayTitle}
       </div>
       <div className="discover-card-meta">
-        {item.subtitle || (item.year ?? "")}
+        <span>{item.subtitle || (item.year ?? "")}</span>
         {item.score != null && <span className="discover-score">{item.score}%</span>}
       </div>
-      {requested ? (
-        <span className="pill orange" style={{ alignSelf: "flex-start" }}>Requested</span>
-      ) : (
-        <button
-          className="btn primary"
-          style={{ padding: "4px 10px", fontSize: 12.5 }}
-          disabled={request.isPending}
-          onClick={() => request.mutate()}
-        >
-          Request
-        </button>
-      )}
-      {request.isError && (
-        <span style={{ color: "var(--danger)", fontSize: 11 }}>
-          {(request.error as Error).message}
-        </span>
-      )}
-    </div>
+      <div className="discover-card-action">
+        <RequestButton
+          payload={{
+            media_type: item.media_type,
+            provider: item.provider,
+            provider_id: item.provider_id,
+            title: item.title,
+            english_title: item.english_title,
+            year: item.year,
+            cover_url: item.cover_url,
+            description: item.description,
+          }}
+          inLibrary={item.in_library}
+          requestStatus={item.request_status}
+          size="sm"
+        />
+      </div>
+    </Link>
   );
 }
 
@@ -76,9 +65,6 @@ function Recommendations() {
     queryFn: () => api.get<DiscoverResponse>("/discover"),
     staleTime: 5 * 60 * 1000,
   });
-  // requested-this-session keys keep their "Requested" pill until the next
-  // discover refetch filters them out entirely
-  const [requested, setRequested] = useState<Set<string>>(new Set());
 
   if (isLoading) return <Spinner />;
   if (!data || data.sections.length === 0) {
@@ -101,17 +87,9 @@ function Recommendations() {
         <div className="discover-section" key={section.key}>
           <h3>{section.title}</h3>
           <div className="discover-row">
-            {section.items.map((item) => {
-              const key = `${item.provider}-${item.provider_id}`;
-              return (
-                <DiscoverCard
-                  key={key}
-                  item={item}
-                  requested={requested.has(key)}
-                  onRequested={(k) => setRequested((prev) => new Set(prev).add(k))}
-                />
-              );
-            })}
+            {section.items.map((item) => (
+              <DiscoverCard key={`${item.provider}-${item.provider_id}`} item={item} />
+            ))}
           </div>
         </div>
       ))}
@@ -120,29 +98,9 @@ function Recommendations() {
 }
 
 function ResultCard({ result }: { result: SearchResult }) {
-  const queryClient = useQueryClient();
-  const request = useMutation({
-    mutationFn: () =>
-      api.post("/requests", {
-        media_type: result.media_type,
-        provider: result.provider,
-        provider_id: result.provider_id,
-        title: result.title,
-        english_title: result.english_title,
-        alt_titles: result.alt_titles,
-        year: result.year,
-        cover_url: result.cover_url,
-        description: result.description,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["search"] });
-      queryClient.invalidateQueries({ queryKey: ["requests"] });
-    },
-  });
-
   const displayTitle = result.english_title || result.title;
   return (
-    <div className="result-card">
+    <Link className="result-card" to={titleHref(result)}>
       {result.cover_url ? (
         <img src={result.cover_url} alt="" loading="lazy" />
       ) : (
@@ -165,27 +123,24 @@ function ResultCard({ result }: { result: SearchResult }) {
         </div>
         {result.description && <div className="result-desc">{result.description.replace(/<[^>]+>/g, "")}</div>}
         <div className="result-actions">
-          {result.request_status ? (
-            <StatusPill status={result.request_status} />
-          ) : result.in_library ? (
-            <span className="pill green">In Library</span>
-          ) : (
-            <button
-              className="btn primary"
-              disabled={request.isPending}
-              onClick={() => request.mutate()}
-            >
-              Request
-            </button>
-          )}
-          {request.isError && (
-            <span style={{ color: "var(--danger)", fontSize: 12 }}>
-              {(request.error as Error).message}
-            </span>
-          )}
+          <RequestButton
+            payload={{
+              media_type: result.media_type,
+              provider: result.provider,
+              provider_id: result.provider_id,
+              title: result.title,
+              english_title: result.english_title,
+              alt_titles: result.alt_titles,
+              year: result.year,
+              cover_url: result.cover_url,
+              description: result.description,
+            }}
+            inLibrary={result.in_library}
+            requestStatus={result.request_status}
+          />
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 

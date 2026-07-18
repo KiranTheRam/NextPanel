@@ -65,6 +65,53 @@ class SearchOut(BaseModel):
     errors: dict[str, str] = Field(default_factory=dict)
 
 
+# ------------------------------------------------------------------ detail
+
+class ChapterOut(BaseModel):
+    number: float | None = None
+    label: str = ""  # display number, e.g. "12" or "Annual 1"
+    title: str = ""
+    volume: int | None = None
+    downloaded: bool = False
+    monitored: bool = False
+
+
+class StaffOut(BaseModel):
+    name: str
+    role: str = ""
+
+
+class TitleDetailOut(BaseModel):
+    media_type: MediaType
+    provider: str
+    provider_id: int
+    title: str
+    english_title: str = ""
+    native_title: str = ""
+    description: str = ""
+    status: str = ""
+    format: str = ""
+    year: int | None = None
+    end_year: int | None = None
+    cover_url: str = ""
+    banner_url: str = ""
+    genres: list[str] = Field(default_factory=list)
+    score: int | None = None
+    publisher: str = ""
+    country: str = ""
+    staff: list[StaffOut] = Field(default_factory=list)
+    total_count: int | None = None  # chapters (manga) or issues (comics)
+    volumes: int | None = None
+    downloaded_count: int = 0
+    # chapter lists only exist once the series is in mangarr/pullarr
+    chapters: list[ChapterOut] = Field(default_factory=list)
+    chapters_available: bool = False
+    in_library: bool = False
+    library_series_id: int | None = None
+    request_id: int | None = None
+    request_status: RequestStatus | None = None
+
+
 # ---------------------------------------------------------------- requests
 
 class RequestCreateIn(BaseModel):
