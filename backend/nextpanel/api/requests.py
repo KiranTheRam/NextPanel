@@ -9,6 +9,7 @@ from ..arr import ArrConflict, ArrError, client_for
 from ..db import get_session
 from ..models import MediaType, Request, RequestStatus, User
 from ..schemas import ApproveIn, DenyIn, RequestCreateIn, RequestOut
+from ..security import safe_cover_url
 from ..status import refresh_request
 from .deps import get_current_user, require_admin
 
@@ -21,6 +22,7 @@ MAX_PENDING_PER_USER = 25
 
 def _out(request: Request) -> RequestOut:
     out = RequestOut.model_validate(request)
+    out.cover_url = safe_cover_url(out.cover_url)
     out.username = request.user.username if request.user else ""
     out.decided_by_username = request.decided_by.username if request.decided_by else ""
     return out
@@ -228,6 +230,8 @@ async def refresh_one(
 ):
     """On-demand status sync against the app (any signed-in user)."""
     request = await _load(session, request_id)
+    if not user.is_admin and request.user_id != user.id:
+        raise HTTPException(403, "Not your request")
     if request.remote_series_id is not None and request.status not in (
         RequestStatus.DENIED, RequestStatus.PENDING
     ):

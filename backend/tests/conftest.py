@@ -27,7 +27,7 @@ async def client():
     from nextpanel.main import app
 
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as c:
         yield c
 
 

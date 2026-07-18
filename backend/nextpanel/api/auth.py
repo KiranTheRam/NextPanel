@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -5,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import ratelimit, settings_service
+from ..config import config
 from ..db import get_session
 from ..models import User, UserSession
 from ..schemas import AuthStatusOut, CredentialsIn, UserOut
@@ -21,18 +23,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 SESSION_DAYS = 30
 LOGIN_LIMIT, LOGIN_WINDOW = 10, 15 * 60       # per ip+username
+LOGIN_GLOBAL_LIMIT = 50                        # caps total scrypt work per window
 REGISTER_LIMIT, REGISTER_WINDOW = 5, 60 * 60  # per ip
+REGISTER_GLOBAL_LIMIT = 20
+_PASSWORD_CHECKS = asyncio.Semaphore(4)
 
 
 async def _user_count(session: AsyncSession) -> int:
     return (await session.execute(select(func.count(User.id)))).scalar_one()
-
-
-def _secure_cookie(request: Request) -> bool:
-    """True when the client reached us over HTTPS (directly or via a proxy
-    such as a Cloudflare tunnel that sets X-Forwarded-Proto)."""
-    forwarded = request.headers.get("x-forwarded-proto", "")
-    return "https" in (forwarded or request.url.scheme)
 
 
 async def _start_session(
@@ -48,7 +46,7 @@ async def _start_session(
         SESSION_COOKIE, token,
         max_age=SESSION_DAYS * 24 * 3600,
         httponly=True, samesite="lax", path="/",
-        secure=_secure_cookie(request),
+        secure=config.session_cookie_secure,
     )
 
 
@@ -110,6 +108,7 @@ async def register(
         raise HTTPException(403, "Registration is disabled — ask the admin for an account")
     if await _user_count(session) == 0:
         raise HTTPException(403, "Run first-time setup instead")
+    ratelimit.check("register:global", REGISTER_GLOBAL_LIMIT, REGISTER_WINDOW)
     ratelimit.check(f"register:{ratelimit.client_ip(request)}", REGISTER_LIMIT, REGISTER_WINDOW)
     username = _clean_username(body.username)
     if await _username_taken(session, username):
@@ -130,17 +129,23 @@ async def login(
     session: AsyncSession = Depends(get_session),
 ):
     username = body.username.strip().lower()
+    ratelimit.check("login:global", LOGIN_GLOBAL_LIMIT, LOGIN_WINDOW)
     rate_key = f"login:{ratelimit.client_ip(request)}:{username}"
     ratelimit.check(rate_key, LOGIN_LIMIT, LOGIN_WINDOW)
     result = await session.execute(
         select(User).where(func.lower(User.username) == username)
     )
     user = result.scalar_one_or_none()
-    if user is None:
-        # equalize timing with the real-password path
-        verify_password(body.password, DUMMY_PASSWORD_HASH)
-        raise HTTPException(401, "Invalid username or password")
-    if not verify_password(body.password, user.password_hash):
+    # scrypt is deliberately expensive.  Run it outside the event loop and
+    # fail fast when all workers are occupied rather than accumulating work.
+    if _PASSWORD_CHECKS.locked():
+        raise HTTPException(429, "Too many login attempts — try again later")
+    async with _PASSWORD_CHECKS:
+        password_ok = await asyncio.to_thread(
+            verify_password, body.password,
+            user.password_hash if user is not None else DUMMY_PASSWORD_HASH,
+        )
+    if user is None or not password_ok:
         raise HTTPException(401, "Invalid username or password")
     ratelimit.clear(rate_key)
     await _start_session(session, request, response, user)

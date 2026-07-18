@@ -63,7 +63,7 @@ async def test_new_request_notifies_admins(client, admin, monkeypatch):
     from nextpanel.main import app
 
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
     ) as reader:
         await register_user(reader)
         await make_request(reader)

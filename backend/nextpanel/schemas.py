@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .models import MediaType, RequestStatus
+from .security import safe_cover_url
 
 
 # ------------------------------------------------------------------- auth
@@ -76,6 +77,11 @@ class RequestCreateIn(BaseModel):
     year: int | None = None
     cover_url: str = ""
     description: str = ""
+
+    @field_validator("cover_url")
+    @classmethod
+    def restrict_cover_url(cls, value: str) -> str:
+        return safe_cover_url(value)
 
 
 class RequestOut(BaseModel):
