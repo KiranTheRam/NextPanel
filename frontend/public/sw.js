@@ -32,15 +32,16 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || "/";
+  const targetUrl = new URL(url, self.location.origin).href;
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (windows) => {
       for (const client of windows) {
         if ("focus" in client) {
-          client.navigate(url);
-          return client.focus();
+          const navigated = "navigate" in client ? await client.navigate(targetUrl) : null;
+          return (navigated || client).focus();
         }
       }
-      return self.clients.openWindow(url);
+      return self.clients.openWindow(targetUrl);
     }),
   );
 });

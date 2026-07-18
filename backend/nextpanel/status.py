@@ -58,7 +58,12 @@ async def refresh_request(session: AsyncSession, request: Request, client: ArrCl
             from . import push
 
             push.notify_later(push.notify_request_available(
-                request.user_id, request.title, remote.total_count, request.media_type
+                request.user_id,
+                request.title,
+                remote.total_count,
+                request.media_type,
+                request.provider,
+                request.provider_id,
             ))
         request.status = new_status
         changed = True

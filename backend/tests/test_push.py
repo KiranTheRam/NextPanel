@@ -53,10 +53,10 @@ async def _drain_tasks():
 
 
 async def test_new_request_notifies_admins(client, admin, monkeypatch):
-    sent: list[tuple[list[int], str, str]] = []
+    sent: list[tuple[list[int], str, str, str]] = []
 
     async def fake_push_to_users(user_ids, title, body, url="/requests"):
-        sent.append((sorted(user_ids), title, body))
+        sent.append((sorted(user_ids), title, body, url))
 
     monkeypatch.setattr(push, "push_to_users", fake_push_to_users)
 
@@ -70,16 +70,17 @@ async def test_new_request_notifies_admins(client, admin, monkeypatch):
     await _drain_tasks()
 
     assert len(sent) == 1
-    user_ids, title, body = sent[0]
+    user_ids, title, body, url = sent[0]
     assert user_ids == [admin["id"]]
     assert "reader" in body and "One Piece" in body
+    assert url == "/requests"
 
 
 async def test_deny_notifies_owner(client, configured, monkeypatch):
     sent = []
 
     async def fake_push_to_users(user_ids, title, body, url="/requests"):
-        sent.append((user_ids, title, body))
+        sent.append((user_ids, title, body, url))
 
     monkeypatch.setattr(push, "push_to_users", fake_push_to_users)
 
@@ -91,6 +92,7 @@ async def test_deny_notifies_owner(client, configured, monkeypatch):
     assert len(denied) == 1
     assert denied[0][0] == [admin_id_of(req)] or denied[0][0] == [1]
     assert "already have it" in denied[0][2]
+    assert denied[0][3] == "/title/manga/mangaupdates/111?title=One+Piece"
 
 
 def admin_id_of(req):
@@ -102,7 +104,7 @@ async def test_available_transition_notifies_owner(client, configured, monkeypat
     sent = []
 
     async def fake_push_to_users(user_ids, title, body, url="/requests"):
-        sent.append((user_ids, title, body))
+        sent.append((user_ids, title, body, url))
 
     monkeypatch.setattr(push, "push_to_users", fake_push_to_users)
 
@@ -124,6 +126,7 @@ async def test_available_transition_notifies_owner(client, configured, monkeypat
     assert len(available) == 1
     assert available[0][1] == "One Piece is available"
     assert "100 chapters" in available[0][2]
+    assert available[0][3] == "/title/manga/mangaupdates/111?title=One+Piece"
 
 
 async def test_gone_subscription_pruned(client, admin, monkeypatch):

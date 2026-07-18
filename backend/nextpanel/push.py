@@ -10,6 +10,7 @@ import asyncio
 import base64
 import json
 import logging
+from urllib.parse import quote, urlencode
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -18,7 +19,7 @@ from sqlalchemy import delete, select
 
 from .config import config
 from .db import session_scope
-from .models import PushSubscription, User
+from .models import MediaType, PushSubscription, User
 
 log = logging.getLogger(__name__)
 
@@ -118,20 +119,48 @@ async def notify_admins_new_request(username: str, title: str) -> None:
         await admin_user_ids(),
         "New request awaiting approval",
         f"{username} requested {title}",
+        url="/requests",
     )
 
 
-async def notify_request_denied(user_id: int, title: str, reason: str) -> None:
+def _title_url(media_type: MediaType, provider: str, provider_id: int, title: str) -> str:
+    return (
+        f"/title/{quote(media_type.value, safe='')}/{quote(provider, safe='')}/{provider_id}"
+        f"?{urlencode({'title': title})}"
+    )
+
+
+async def notify_request_denied(
+    user_id: int,
+    title: str,
+    reason: str,
+    media_type: MediaType,
+    provider: str,
+    provider_id: int,
+) -> None:
     body = f"Your request for {title} was denied"
     if reason:
         body += f": {reason}"
-    await push_to_users([user_id], "Request denied", body)
+    await push_to_users(
+        [user_id],
+        "Request denied",
+        body,
+        url=_title_url(media_type, provider, provider_id, title),
+    )
 
 
-async def notify_request_available(user_id: int, title: str, count: int, media_type) -> None:
-    from .models import MediaType
-
+async def notify_request_available(
+    user_id: int,
+    title: str,
+    count: int,
+    media_type: MediaType,
+    provider: str,
+    provider_id: int,
+) -> None:
     unit = "chapters" if media_type == MediaType.MANGA else "issues"
     await push_to_users(
-        [user_id], f"{title} is available", f"All {count} {unit} are downloaded"
+        [user_id],
+        f"{title} is available",
+        f"All {count} {unit} are downloaded",
+        url=_title_url(media_type, provider, provider_id, title),
     )

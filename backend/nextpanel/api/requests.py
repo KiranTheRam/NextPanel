@@ -217,7 +217,14 @@ async def deny_request(
     request.decided_by_id = admin.id
     await session.commit()
     push.notify_later(
-        push.notify_request_denied(request.user_id, request.title, request.note)
+        push.notify_request_denied(
+            request.user_id,
+            request.title,
+            request.note,
+            request.media_type,
+            request.provider,
+            request.provider_id,
+        )
     )
     return _out(await _load(session, request_id))
 
