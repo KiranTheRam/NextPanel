@@ -8,6 +8,7 @@ import Discover from "./pages/Discover";
 import Login from "./pages/Login";
 import Requests from "./pages/Requests";
 import Settings from "./pages/Settings";
+import Title from "./pages/Title";
 import Users from "./pages/Users";
 
 export default function App() {
@@ -45,6 +46,7 @@ export default function App() {
       <div className="main">
         <Routes>
           <Route path="/" element={<Discover />} />
+          <Route path="/title/:mediaType/:provider/:providerId" element={<Title />} />
           <Route path="/requests" element={<Requests me={me} />} />
           {me.is_admin && <Route path="/users" element={<Users me={me} />} />}
           {me.is_admin && <Route path="/settings" element={<Settings />} />}

@@ -100,6 +100,10 @@ class ArrClient:
     async def list_series(self) -> list[dict[str, Any]]:
         return await self._request("GET", "/series")
 
+    async def series_detail(self, series_id: int) -> dict[str, Any]:
+        """The library series with its chapters/issues."""
+        return await self._request("GET", f"/series/{series_id}")
+
     async def add_series(self, provider_id: int, root_folder_id: int, *,
                          provider: str = "", english_title: str = "",
                          alt_titles: list[str] | None = None) -> int:

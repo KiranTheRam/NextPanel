@@ -17,10 +17,12 @@ def fresh_cache():
     discover.clear_cache()
 
 
-def anilist_media(media_id: int, romaji: str, english: str = "", year: int = 2026):
+def anilist_media(media_id: int, romaji: str, english: str = "", year: int = 2026,
+                  synonyms: list[str] | None = None):
     return {
         "id": media_id,
         "title": {"romaji": romaji, "english": english or None},
+        "synonyms": synonyms or [],
         "description": "<i>Some</i> story",
         "coverImage": {"extraLarge": f"http://img/{media_id}.jpg", "large": None},
         "startDate": {"year": year},
@@ -62,20 +64,21 @@ async def test_discover_sections_and_html_stripping(client, admin):
 
 
 @respx.mock
-async def test_discover_hides_requested_and_library_titles(client, configured):
+async def test_discover_marks_requested_and_library_titles(client, configured):
     respx.get("http://pullarr.test/api/v1/discover/releases").mock(
         return_value=Response(200, json=[])
     )
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
     respx.post("https://graphql.anilist.co").mock(
         return_value=anilist_response(
             anilist_media(101, "Dandadan", "Dandadan"),
             anilist_media(202, "One Piece", "One Piece"),
             anilist_media(303, "Berserk"),
-            anilist_media(404, "Vagabond"),
+            anilist_media(404, "Vagabond", synonyms=["Slam Dunk Author"]),
         )
     )
     # 101 already requested via anilist; One Piece requested via mangaupdates
-    # (matched by title); Berserk in the mangarr library (matched by title)
+    # (matched by title); Berserk in the mangarr library (matched by alt title)
     await make_anilist_request(client, 101, "Dandadan")
     r = await client.post("/api/v1/requests", json={
         "media_type": "manga", "provider": "anilist",
@@ -87,12 +90,56 @@ async def test_discover_hides_requested_and_library_titles(client, configured):
     respx.get("http://mangarr.test/api/v1/series").mock(
         return_value=Response(200, json=[{
             "id": 9, "anilist_id": None, "mangaupdates_id": 555,
-            "title": "Berserk", "english_title": "", "alt_titles": "Berserker\nベルセルク",
+            "title": "Berserker", "english_title": "", "alt_titles": "Berserk\nベルセルク",
         }])
     )
     data = (await client.get("/api/v1/discover")).json()
-    shown = {i["provider_id"] for i in data["sections"][0]["items"]}
-    assert shown == {404}  # only Vagabond survives
+    items = {i["provider_id"]: i for i in data["sections"][0]["items"]}
+    # nothing is dropped — the row stays whole and each item says where it stands
+    assert set(items) == {101, 202, 303, 404}
+    assert items[101]["request_status"] == "pending"
+    assert items[202]["request_status"] == "pending"  # matched by title
+    assert items[303]["in_library"] is True
+    assert items[303]["library_series_id"] == 9
+    assert items[404]["in_library"] is False
+    assert items[404]["request_status"] is None
+
+
+@respx.mock
+async def test_discover_matches_library_by_anilist_synonym(client, configured):
+    respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        return_value=Response(200, json=[])
+    )
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    respx.post("https://graphql.anilist.co").mock(
+        return_value=anilist_response(
+            anilist_media(505, "Ao no Hako", synonyms=["Blue Box"]),
+        )
+    )
+    # added to mangarr from MangaUpdates, so only its English name matches
+    respx.get("http://mangarr.test/api/v1/series").mock(
+        return_value=Response(200, json=[{
+            "id": 3, "anilist_id": None, "mangaupdates_id": 8517620677,
+            "title": "Blue Box", "english_title": "", "alt_titles": "",
+        }])
+    )
+    data = (await client.get("/api/v1/discover")).json()
+    assert data["sections"][0]["items"][0]["in_library"] is True
+
+
+@respx.mock
+async def test_discover_library_unreachable_marks_nothing(client, configured):
+    respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        return_value=Response(200, json=[])
+    )
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    respx.post("https://graphql.anilist.co").mock(
+        return_value=anilist_response(anilist_media(1, "Test"))
+    )
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(502))
+    data = (await client.get("/api/v1/discover")).json()
+    item = data["sections"][0]["items"][0]
+    assert item["in_library"] is False  # unknown, not owned — the row still renders
 
 
 async def make_anilist_request(client, provider_id, title):
@@ -151,6 +198,7 @@ def comic_entry(volume_id, name, in_library=False, subtitle="#1 · Jul 15"):
 async def test_discover_comic_sections(client, configured):
     respx.post("https://graphql.anilist.co").mock(return_value=anilist_response())
     respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
     releases_route = respx.get("http://pullarr.test/api/v1/discover/releases").mock(
         return_value=Response(200, json=[
             comic_entry(10, "Batman (2026)"),
@@ -158,7 +206,7 @@ async def test_discover_comic_sections(client, configured):
             comic_entry(30, "Already Requested"),
         ])
     )
-    # an existing comic request hides volume 30
+    # an existing comic request marks volume 30
     r = await client.post("/api/v1/requests", json={
         "media_type": "comic", "provider": "comicvine",
         "provider_id": 30, "title": "Already Requested",
@@ -171,12 +219,15 @@ async def test_discover_comic_sections(client, configured):
     assert [s["title"] for s in comic_sections] == [
         "New Comics This Week", "New Comic Series This Month",
     ]
-    items = comic_sections[0]["items"]
-    assert [i["provider_id"] for i in items] == [10]
-    assert items[0]["media_type"] == "comic"
-    assert items[0]["provider"] == "comicvine"
-    assert items[0]["subtitle"] == "#1 · Jul 15"
-    assert items[0]["year"] == 2026
+    items = {i["provider_id"]: i for i in comic_sections[0]["items"]}
+    assert set(items) == {10, 20, 30}
+    assert items[10]["media_type"] == "comic"
+    assert items[10]["provider"] == "comicvine"
+    assert items[10]["subtitle"] == "#1 · Jul 15"
+    assert items[10]["year"] == 2026
+    assert items[10]["in_library"] is False
+    assert items[20]["in_library"] is True  # pullarr said so
+    assert items[30]["request_status"] == "pending"
 
     # both windows requested (7-day and 30-day first-issues)
     params = [dict(c.request.url.params) for c in releases_route.calls]
@@ -190,6 +241,7 @@ async def test_discover_comics_survive_pullarr_down(client, configured):
         return_value=anilist_response(anilist_media(1, "Test"))
     )
     respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
     respx.get("http://pullarr.test/api/v1/discover/releases").mock(
         return_value=Response(502, json={"detail": "boom"})
     )

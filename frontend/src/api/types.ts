@@ -91,6 +91,49 @@ export interface DiscoverItem {
   score: number | null;
   subtitle: string;
   genres: string[];
+  in_library: boolean;
+  library_series_id: number | null;
+  request_id: number | null;
+  request_status: RequestStatus | null;
+}
+
+export interface Chapter {
+  number: number | null;
+  label: string;
+  title: string;
+  volume: number | null;
+  downloaded: boolean;
+  monitored: boolean;
+}
+
+export interface TitleDetail {
+  media_type: MediaType;
+  provider: string;
+  provider_id: number;
+  title: string;
+  english_title: string;
+  native_title: string;
+  description: string;
+  status: string;
+  format: string;
+  year: number | null;
+  end_year: number | null;
+  cover_url: string;
+  banner_url: string;
+  genres: string[];
+  score: number | null;
+  publisher: string;
+  country: string;
+  staff: { name: string; role: string }[];
+  total_count: number | null;
+  volumes: number | null;
+  downloaded_count: number;
+  chapters: Chapter[];
+  chapters_available: boolean;
+  in_library: boolean;
+  library_series_id: number | null;
+  request_id: number | null;
+  request_status: RequestStatus | null;
 }
 
 export interface DiscoverSection {
