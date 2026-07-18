@@ -14,7 +14,7 @@ class AuthStatusOut(BaseModel):
 
 class CredentialsIn(BaseModel):
     username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=4, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
 
 
 class UserOut(BaseModel):
@@ -28,12 +28,12 @@ class UserOut(BaseModel):
 
 class UserCreateIn(BaseModel):
     username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=4, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     is_admin: bool = False
 
 
 class UserUpdateIn(BaseModel):
-    password: str | None = Field(default=None, min_length=4, max_length=128)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
     is_admin: bool | None = None
 
 
@@ -120,3 +120,12 @@ class WebhookIn(BaseModel):
     event: str = ""
     app: str = ""
     series_id: int
+
+
+class PushSubscriptionIn(BaseModel):
+    """Browser PushSubscription.toJSON() shape (extra fields ignored)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    endpoint: str = Field(min_length=1, max_length=2048)
+    keys: dict[str, str] = Field(default_factory=dict)

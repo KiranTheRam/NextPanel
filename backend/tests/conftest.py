@@ -13,9 +13,12 @@ from nextpanel.db import engine, session_scope
 
 @pytest.fixture(autouse=True)
 async def clean_db():
+    from nextpanel import ratelimit
+
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.drop_all)
         await conn.run_sync(models.Base.metadata.create_all)
+    ratelimit.reset()
     yield
 
 
@@ -54,7 +57,9 @@ async def configured(admin, client):
     return resp.json()
 
 
-async def register_user(client, username="reader", password="readerpw"):
+async def register_user(client, username="reader", password="readerpass"):
+    # open registration ships disabled; tests that register turn it on
+    await set_settings(registration_enabled="true")
     resp = await client.post(
         "/api/v1/auth/register", json={"username": username, "password": password}
     )

@@ -38,20 +38,29 @@ async def test_login_logout(client, admin):
 
 
 async def test_registration_toggle(client, admin):
-    await register_user(client, "friend", "friendpw")
+    # registration is off by default on a fresh install
+    resp = await client.post(
+        "/api/v1/auth/register", json={"username": "other", "password": "otherpass"}
+    )
+    assert resp.status_code == 403
+
+    await register_user(client, "friend", "friendpass")  # enables the toggle
     assert (await client.get("/api/v1/auth/me")).json()["username"] == "friend"
     assert (await client.get("/api/v1/auth/me")).json()["is_admin"] is False
 
     await set_settings(registration_enabled="false")
     resp = await client.post(
-        "/api/v1/auth/register", json={"username": "other", "password": "otherpw"}
+        "/api/v1/auth/register", json={"username": "other", "password": "otherpass"}
     )
     assert resp.status_code == 403
 
 
 async def test_duplicate_username_rejected(client, admin):
+    from .conftest import set_settings as enable
+
+    await enable(registration_enabled="true")
     resp = await client.post(
-        "/api/v1/auth/register", json={"username": "Admin", "password": "whatever1"}
+        "/api/v1/auth/register", json={"username": "Admin", "password": "whatever12"}
     )
     assert resp.status_code == 409
 
@@ -65,7 +74,7 @@ async def test_non_admin_cannot_touch_admin_routes(client, admin):
 
 async def test_admin_user_management(client, admin):
     resp = await client.post(
-        "/api/v1/users", json={"username": "kid", "password": "kidpass", "is_admin": False}
+        "/api/v1/users", json={"username": "kid", "password": "kidpassword", "is_admin": False}
     )
     assert resp.status_code == 201
     kid_id = resp.json()["id"]

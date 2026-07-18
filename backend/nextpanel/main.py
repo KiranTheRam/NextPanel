@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import __version__, scheduler
-from .api import auth, requests, search, settings, users, webhooks
+from .api import auth, push, requests, search, settings, users, webhooks
 from .config import config
 from .db import init_db
 
@@ -28,10 +28,32 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="NextPanel", version=__version__, lifespan=lifespan)
 
+# NextPanel is built to sit behind a public reverse proxy (e.g. a Cloudflare
+# tunnel); browsers get defense-in-depth headers on every response. The CSP
+# allows external https images (series covers) and inline style attributes
+# (React), nothing else beyond same-origin.
+_CSP = (
+    "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Content-Security-Policy", _CSP)
+    return response
+
+
 # Unlike mangarr/pullarr's single X-Api-Key gate, routes carry their own
 # auth: session cookie for users, shared secret for inbound webhooks.
 api = FastAPI()
 api.include_router(auth.router)
+api.include_router(push.router)
 api.include_router(search.router)
 api.include_router(requests.router)
 api.include_router(users.router)

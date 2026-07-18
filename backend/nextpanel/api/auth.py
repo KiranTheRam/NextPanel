@@ -1,29 +1,46 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import settings_service
+from .. import ratelimit, settings_service
 from ..db import get_session
 from ..models import User, UserSession
 from ..schemas import AuthStatusOut, CredentialsIn, UserOut
-from ..security import hash_password, new_session_token, verify_password
+from ..security import (
+    DUMMY_PASSWORD_HASH,
+    hash_password,
+    hash_token,
+    new_session_token,
+    verify_password,
+)
 from .deps import SESSION_COOKIE, _utcnow, get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 SESSION_DAYS = 30
+LOGIN_LIMIT, LOGIN_WINDOW = 10, 15 * 60       # per ip+username
+REGISTER_LIMIT, REGISTER_WINDOW = 5, 60 * 60  # per ip
 
 
 async def _user_count(session: AsyncSession) -> int:
     return (await session.execute(select(func.count(User.id)))).scalar_one()
 
 
-async def _start_session(session: AsyncSession, response: Response, user: User) -> None:
+def _secure_cookie(request: Request) -> bool:
+    """True when the client reached us over HTTPS (directly or via a proxy
+    such as a Cloudflare tunnel that sets X-Forwarded-Proto)."""
+    forwarded = request.headers.get("x-forwarded-proto", "")
+    return "https" in (forwarded or request.url.scheme)
+
+
+async def _start_session(
+    session: AsyncSession, request: Request, response: Response, user: User
+) -> None:
     token = new_session_token()
     session.add(UserSession(
-        token=token, user_id=user.id,
+        token=hash_token(token), user_id=user.id,
         expires_at=_utcnow() + timedelta(days=SESSION_DAYS),
     ))
     await session.commit()
@@ -31,6 +48,7 @@ async def _start_session(session: AsyncSession, response: Response, user: User) 
         SESSION_COOKIE, token,
         max_age=SESSION_DAYS * 24 * 3600,
         httponly=True, samesite="lax", path="/",
+        secure=_secure_cookie(request),
     )
 
 
@@ -61,7 +79,10 @@ async def auth_status(session: AsyncSession = Depends(get_session)):
 
 @router.post("/setup", response_model=UserOut, status_code=201)
 async def setup(
-    body: CredentialsIn, response: Response, session: AsyncSession = Depends(get_session)
+    body: CredentialsIn,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
 ):
     """First-run: create the admin account. Only works while no users exist."""
     if await _user_count(session) > 0:
@@ -74,18 +95,22 @@ async def setup(
     session.add(user)
     await session.commit()
     await session.refresh(user)
-    await _start_session(session, response, user)
+    await _start_session(session, request, response, user)
     return user
 
 
 @router.post("/register", response_model=UserOut, status_code=201)
 async def register(
-    body: CredentialsIn, response: Response, session: AsyncSession = Depends(get_session)
+    body: CredentialsIn,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
 ):
     if await settings_service.get(session, "registration_enabled") != "true":
         raise HTTPException(403, "Registration is disabled — ask the admin for an account")
     if await _user_count(session) == 0:
         raise HTTPException(403, "Run first-time setup instead")
+    ratelimit.check(f"register:{ratelimit.client_ip(request)}", REGISTER_LIMIT, REGISTER_WINDOW)
     username = _clean_username(body.username)
     if await _username_taken(session, username):
         raise HTTPException(409, "Username already taken")
@@ -93,21 +118,32 @@ async def register(
     session.add(user)
     await session.commit()
     await session.refresh(user)
-    await _start_session(session, response, user)
+    await _start_session(session, request, response, user)
     return user
 
 
 @router.post("/login", response_model=UserOut)
 async def login(
-    body: CredentialsIn, response: Response, session: AsyncSession = Depends(get_session)
+    body: CredentialsIn,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
 ):
+    username = body.username.strip().lower()
+    rate_key = f"login:{ratelimit.client_ip(request)}:{username}"
+    ratelimit.check(rate_key, LOGIN_LIMIT, LOGIN_WINDOW)
     result = await session.execute(
-        select(User).where(func.lower(User.username) == body.username.strip().lower())
+        select(User).where(func.lower(User.username) == username)
     )
     user = result.scalar_one_or_none()
-    if user is None or not verify_password(body.password, user.password_hash):
+    if user is None:
+        # equalize timing with the real-password path
+        verify_password(body.password, DUMMY_PASSWORD_HASH)
         raise HTTPException(401, "Invalid username or password")
-    await _start_session(session, response, user)
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(401, "Invalid username or password")
+    ratelimit.clear(rate_key)
+    await _start_session(session, request, response, user)
     return user
 
 

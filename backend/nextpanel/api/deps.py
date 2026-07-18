@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..models import User, UserSession
+from ..security import hash_token
 
 SESSION_COOKIE = "nextpanel_session"
 
@@ -19,7 +20,7 @@ async def get_current_user(
 ) -> User:
     if not token:
         raise HTTPException(401, "Not signed in")
-    row = await session.get(UserSession, token)
+    row = await session.get(UserSession, hash_token(token))
     if row is None or row.expires_at < _utcnow():
         raise HTTPException(401, "Session expired")
     user = await session.get(User, row.user_id)

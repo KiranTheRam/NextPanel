@@ -56,6 +56,12 @@ async def update_user(
         raise HTTPException(404, "User not found")
     if body.password is not None:
         user.password_hash = hash_password(body.password)
+        # a password reset must sign out whoever holds the old sessions
+        from sqlalchemy import delete
+
+        from ..models import UserSession
+
+        await session.execute(delete(UserSession).where(UserSession.user_id == user.id))
     if body.is_admin is not None:
         if user.id == admin.id and not body.is_admin:
             raise HTTPException(400, "You cannot remove your own admin access")

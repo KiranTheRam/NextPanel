@@ -20,8 +20,10 @@ DEFAULTS: dict[str, str] = {
     "webhook_secret": "",
     # Fallback polling of approved requests (webhooks give instant updates)
     "poll_interval_minutes": "10",
-    # Allow open self-registration on the login page
-    "registration_enabled": "true",
+    # Allow open self-registration on the login page. Off by default: on a
+    # publicly reachable instance, open registration means anyone can create
+    # accounts and submit request spam / burn metadata-API quotas.
+    "registration_enabled": "false",
 }
 
 SECRET_KEYS = {"mangarr_api_key", "pullarr_api_key"}

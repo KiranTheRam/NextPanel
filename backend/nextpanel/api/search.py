@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
@@ -11,12 +12,14 @@ from ..models import MediaType, Request
 from ..schemas import SearchOut, SearchResultOut
 from .deps import get_current_user
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/search", tags=["search"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("", response_model=SearchOut)
 async def search(
-    q: str = Query(min_length=1),
+    q: str = Query(min_length=1, max_length=200),
     media_type: str = Query(default="all", pattern="^(all|manga|comic)$"),
     session: AsyncSession = Depends(get_session),
 ):
@@ -39,7 +42,12 @@ async def search(
         try:
             return await client.search(q)
         except ArrError as exc:
-            errors[client.app_name] = str(exc)
+            # log the detail; the message shown to (any) signed-in user must
+            # not leak internal URLs or upstream error bodies
+            log.warning("search via %s failed: %s", client.app_name, exc)
+            errors[client.app_name] = (
+                f"{client.app_name} could not be reached — ask the admin to check the connection"
+            )
             return []
 
     parts = await asyncio.gather(*(run(c) for c in clients))

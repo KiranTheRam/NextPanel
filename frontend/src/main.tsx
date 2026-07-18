@@ -14,6 +14,14 @@ const queryClient = new QueryClient({
 
 const rootEl = document.getElementById("root")!;
 
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      /* PWA/push simply unavailable */
+    });
+  });
+}
+
 initClient()
   .then(() => {
     ReactDOM.createRoot(rootEl).render(
