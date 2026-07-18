@@ -2395,3 +2395,16 @@ select,
     display: none;
   }
 }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.form-hint {
+  color: var(--warning);
+  font-size: 12.5px;
+  margin-top: 4px;
+}

@@ -165,3 +165,25 @@ async def test_pending_request_cap(client, admin):
             "provider_id": 9999, "title": "One too many",
         })
         assert resp.status_code == 429
+
+
+async def test_password_change_signs_out_other_devices(client, admin):
+    """A password change is how you evict a device you no longer trust."""
+    from nextpanel.main import app
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as other_device:
+        resp = await other_device.post(
+            "/api/v1/auth/login", json={"username": "admin", "password": "hunter22"}
+        )
+        assert resp.status_code == 200
+        assert (await other_device.get("/api/v1/auth/me")).status_code == 200
+
+        resp = await client.post("/api/v1/auth/password", json={
+            "current_password": "hunter22", "new_password": "newpassword1",
+        })
+        assert resp.status_code == 200
+
+        assert (await other_device.get("/api/v1/auth/me")).status_code == 401
+        assert (await client.get("/api/v1/auth/me")).status_code == 200

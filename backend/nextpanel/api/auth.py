@@ -9,7 +9,7 @@ from .. import ratelimit, settings_service
 from ..config import config
 from ..db import get_session
 from ..models import User, UserSession
-from ..schemas import AuthStatusOut, CredentialsIn, UserOut
+from ..schemas import AuthStatusOut, CredentialsIn, PasswordChangeIn, UserOut
 from ..security import (
     DUMMY_PASSWORD_HASH,
     hash_password,
@@ -26,6 +26,7 @@ LOGIN_LIMIT, LOGIN_WINDOW = 10, 15 * 60       # per ip+username
 LOGIN_GLOBAL_LIMIT = 50                        # caps total scrypt work per window
 REGISTER_LIMIT, REGISTER_WINDOW = 5, 60 * 60  # per ip
 REGISTER_GLOBAL_LIMIT = 20
+PASSWORD_LIMIT, PASSWORD_WINDOW = 10, 15 * 60  # per ip+user
 _PASSWORD_CHECKS = asyncio.Semaphore(4)
 
 
@@ -148,6 +149,38 @@ async def login(
     if user is None or not password_ok:
         raise HTTPException(401, "Invalid username or password")
     ratelimit.clear(rate_key)
+    await _start_session(session, request, response, user)
+    return user
+
+
+@router.post("/password", response_model=UserOut)
+async def change_password(
+    body: PasswordChangeIn,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """Change your own password. Every existing session is dropped — a
+    password change is how you lock out a device you no longer trust — and
+    the caller is immediately issued a fresh one so they stay signed in."""
+    from sqlalchemy import delete
+
+    rate_key = f"password:{ratelimit.client_ip(request)}:{user.id}"
+    ratelimit.check(rate_key, PASSWORD_LIMIT, PASSWORD_WINDOW)
+    if _PASSWORD_CHECKS.locked():
+        raise HTTPException(429, "Too busy — try again in a moment")
+    async with _PASSWORD_CHECKS:
+        current_ok = await asyncio.to_thread(
+            verify_password, body.current_password, user.password_hash
+        )
+    if not current_ok:
+        raise HTTPException(403, "Current password is incorrect")
+    ratelimit.clear(rate_key)
+
+    user.password_hash = hash_password(body.new_password)
+    await session.execute(delete(UserSession).where(UserSession.user_id == user.id))
+    await session.commit()
     await _start_session(session, request, response, user)
     return user
 

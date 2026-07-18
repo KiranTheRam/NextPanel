@@ -3,7 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { User } from "../api/types";
 import { Modal, Spinner, Toggle, Toolbar } from "../components/common";
-import { PlusIcon, XIcon } from "../components/icons";
+import { KeyIcon, PlusIcon, XIcon } from "../components/icons";
+import {
+  ChangePasswordModal,
+  MIN_PASSWORD_LENGTH,
+  ResetPasswordModal,
+} from "../components/password";
 
 function CreateUserModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -38,7 +43,7 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
         </button>
         <button
           className="btn primary"
-          disabled={!username || password.length < 4 || create.isPending}
+          disabled={!username || password.length < MIN_PASSWORD_LENGTH || create.isPending}
           onClick={() => create.mutate()}
         >
           Create
@@ -55,6 +60,7 @@ export default function Users({ me }: { me: User }) {
     queryFn: () => api.get<User[]>("/users"),
   });
   const [creating, setCreating] = useState(false);
+  const [resetting, setResetting] = useState<User | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const invalidate = () => {
@@ -128,6 +134,14 @@ export default function Users({ me }: { me: User }) {
                   {new Date(u.created_at).toLocaleDateString()}
                 </td>
                 <td style={{ textAlign: "right" }}>
+                  <button
+                    className="btn icon-btn"
+                    title={u.id === me.id ? "Change your password" : `Reset ${u.username}'s password`}
+                    aria-label="Reset password"
+                    onClick={() => setResetting(u)}
+                  >
+                    <KeyIcon size={14} />
+                  </button>
                   {u.id !== me.id && (
                     <button
                       className="btn icon-btn"
@@ -146,6 +160,16 @@ export default function Users({ me }: { me: User }) {
         </div>
       </div>
       {creating && <CreateUserModal onClose={() => setCreating(false)} />}
+      {resetting && resetting.id === me.id && (
+        <ChangePasswordModal onClose={() => setResetting(null)} />
+      )}
+      {resetting && resetting.id !== me.id && (
+        <ResetPasswordModal
+          userId={resetting.id}
+          username={resetting.username}
+          onClose={() => setResetting(null)}
+        />
+      )}
     </>
   );
 }
