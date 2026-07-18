@@ -114,6 +114,14 @@ export function BellOffIcon({ size }: { size?: number }) {
   );
 }
 
+export function ChevronLeftIcon({ size }: { size?: number }) {
+  return (
+    <Icon size={size}>
+      <polyline points="15 18 9 12 15 6" />
+    </Icon>
+  );
+}
+
 export function KeyIcon({ size }: { size?: number }) {
   return (
     <Icon size={size}>

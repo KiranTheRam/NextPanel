@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { DiscoverItem, DiscoverResponse, SearchResponse, SearchResult } from "../api/types";
 import { EmptyState, MediaBadge, Spinner, Toolbar } from "../components/common";
@@ -144,10 +144,19 @@ function ResultCard({ result }: { result: SearchResult }) {
   );
 }
 
+type MediaFilter = "all" | "manga" | "comic";
+
 export default function Discover() {
-  const [input, setInput] = useState("");
-  const [query, setQuery] = useState("");
-  const [mediaType, setMediaType] = useState<"all" | "manga" | "comic">("all");
+  // The search lives in the URL, not in component state: that is what lets
+  // the browser's back button return from a title to the results you came
+  // from, and makes a set of results linkable and refresh-safe.
+  const [params, setParams] = useSearchParams();
+  const query = params.get("q")?.trim() ?? "";
+  const mediaType = (params.get("type") as MediaFilter) || "all";
+  const [input, setInput] = useState(query);
+
+  // follow the URL when it changes underneath us (back/forward navigation)
+  useEffect(() => setInput(query), [query]);
 
   const { data, isFetching } = useQuery({
     queryKey: ["search", query, mediaType],
@@ -158,9 +167,21 @@ export default function Discover() {
     enabled: query.length > 0,
   });
 
+  const submitSearch = (next: { q?: string; type?: MediaFilter }) => {
+    const q = (next.q ?? query).trim();
+    const type = next.type ?? mediaType;
+    const updated: Record<string, string> = {};
+    if (q) updated.q = q;
+    if (type !== "all") updated.type = type;
+    // The first search pushes, so Back from the results returns to the
+    // discover home. Refining an existing search replaces, so Back does not
+    // have to walk out through every intermediate query.
+    setParams(updated, { replace: query.length > 0 });
+  };
+
   const search = (e: React.FormEvent) => {
     e.preventDefault();
-    setQuery(input.trim());
+    submitSearch({ q: input });
   };
 
   return (
@@ -180,7 +201,7 @@ export default function Discover() {
                 type="button"
                 key={t}
                 className={mediaType === t ? "active" : ""}
-                onClick={() => setMediaType(t)}
+                onClick={() => submitSearch({ type: t })}
               >
                 {t === "all" ? "All" : t === "manga" ? "Manga" : "Comics"}
               </button>
