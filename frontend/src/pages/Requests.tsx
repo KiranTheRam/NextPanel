@@ -139,7 +139,7 @@ export default function Requests({ me }: { me: User }) {
           )
         ) : (
           <div className="table-wrap">
-            <table className="data-table">
+            <table className="data-table card-table request-table">
               <thead>
                 <tr>
                   <th></th>
@@ -154,14 +154,14 @@ export default function Requests({ me }: { me: User }) {
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    <td style={{ width: 54 }}>
+                    <td className="cell-cover">
                       {r.cover_url ? (
                         <img className="request-cover" src={r.cover_url} alt="" loading="lazy" />
                       ) : (
                         <div className="request-cover" />
                       )}
                     </td>
-                    <td>
+                    <td className="cell-rqtitle">
                       <div style={{ fontWeight: 500 }}>
                         {r.english_title || r.title}
                         {r.year ? (
@@ -172,57 +172,57 @@ export default function Requests({ me }: { me: User }) {
                         <div style={{ color: "var(--text-faint)", fontSize: 12 }}>{r.note}</div>
                       )}
                     </td>
-                    <td>
+                    <td className="cell-type">
                       <MediaBadge mediaType={r.media_type} />
                     </td>
-                    {me.is_admin && <td>{r.username}</td>}
-                    <td>
+                    {me.is_admin && <td className="cell-user">{r.username}</td>}
+                    <td className="cell-status">
                       <StatusPill status={r.status} />
                     </td>
-                    <td>
+                    <td className="cell-progress">
                       <Progress request={r} />
                     </td>
-                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      {me.is_admin && (r.status === "pending" || r.status === "failed") && (
-                        <>
-                          <button
-                            className="btn primary"
-                            style={{ marginRight: 6 }}
-                            disabled={approve.isPending}
-                            onClick={() => approve.mutate(r.id)}
-                          >
-                            {r.status === "failed" ? "Retry" : "Approve"}
-                          </button>
-                          {r.status === "pending" && (
-                            <button className="btn" onClick={() => setDenying(r)}>
-                              Deny
+                    <td className="cell-actions">
+                      <div className="request-actions">
+                        {me.is_admin && (r.status === "pending" || r.status === "failed") && (
+                          <>
+                            <button
+                              className="btn primary"
+                              disabled={approve.isPending}
+                              onClick={() => approve.mutate(r.id)}
+                            >
+                              {r.status === "failed" ? "Retry" : "Approve"}
                             </button>
-                          )}
-                        </>
-                      )}
-                      {(r.status === "processing" || r.status === "partially_available") && (
-                        <button
-                          className="btn icon-btn"
-                          title="Refresh status"
-                          aria-label="Refresh status"
-                          disabled={refresh.isPending}
-                          onClick={() => refresh.mutate(r.id)}
-                        >
-                          <RefreshIcon size={14} />
-                        </button>
-                      )}
-                      {(me.is_admin || r.status === "pending") && (
-                        <button
-                          className="btn icon-btn"
-                          title={me.is_admin ? "Remove request" : "Withdraw request"}
-                          aria-label={me.is_admin ? "Remove request" : "Withdraw request"}
-                          disabled={withdraw.isPending}
-                          onClick={() => withdraw.mutate(r.id)}
-                          style={{ marginLeft: 6 }}
-                        >
-                          <XIcon size={14} />
-                        </button>
-                      )}
+                            {r.status === "pending" && (
+                              <button className="btn" onClick={() => setDenying(r)}>
+                                Deny
+                              </button>
+                            )}
+                          </>
+                        )}
+                        {(r.status === "processing" || r.status === "partially_available") && (
+                          <button
+                            className="btn icon-btn"
+                            title="Refresh status"
+                            aria-label="Refresh status"
+                            disabled={refresh.isPending}
+                            onClick={() => refresh.mutate(r.id)}
+                          >
+                            <RefreshIcon size={14} />
+                          </button>
+                        )}
+                        {(me.is_admin || r.status === "pending") && (
+                          <button
+                            className="btn icon-btn"
+                            title={me.is_admin ? "Remove request" : "Withdraw request"}
+                            aria-label={me.is_admin ? "Remove request" : "Withdraw request"}
+                            disabled={withdraw.isPending}
+                            onClick={() => withdraw.mutate(r.id)}
+                          >
+                            <XIcon size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

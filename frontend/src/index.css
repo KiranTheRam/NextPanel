@@ -1578,6 +1578,70 @@ h4.link-text:hover {
     grid-area: 2 / 2;
   }
 
+  /* a stacked table fits the screen; without this the wrapper keeps forcing
+     it to 640px and the row scrolls sideways anyway */
+  /* .table-wrap .data-table sets min-width: 640px later in the file, so this
+     has to out-specify it rather than rely on order */
+  .table-wrap .data-table.card-table {
+    min-width: 0;
+  }
+
+  .table-wrap:has(.card-table) {
+    overflow-x: visible;
+  }
+
+  /* requests: [cover] title …… status / type · by · progress / actions */
+  .request-table tr {
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+    padding: 12px;
+    gap: 6px 8px;
+  }
+
+  .request-table .cell-cover {
+    grid-area: 1 / 1 / 4 / 2;
+    align-self: start;
+    margin-right: 4px;
+  }
+
+  .request-table .cell-rqtitle {
+    grid-area: 1 / 2 / 2 / 5;
+    word-break: break-word;
+  }
+
+  .request-table .cell-status {
+    grid-area: 1 / 5 / 2 / 6;
+    justify-self: end;
+  }
+
+  /* the "Requested By" column only exists for admins, so let the meta cells
+     place themselves along row 2 rather than pinning each to a column */
+  .request-table .cell-type,
+  .request-table .cell-user,
+  .request-table .cell-progress {
+    grid-row: 2;
+    align-self: center;
+    color: var(--text-dim);
+    font-size: 12.5px;
+  }
+
+  .request-table .cell-actions {
+    grid-area: 3 / 2 / 4 / 6;
+  }
+
+  /* full-width tap targets instead of a sideways scroll to reach them */
+  .request-table .request-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .request-table .request-actions .btn:not(.icon-btn) {
+    flex: 1;
+    min-width: 96px;
+    justify-content: center;
+  }
+
   /* any other table (rename previews, file lists…) scrolls sideways instead */
   .data-table:not(.card-table) {
     display: block;
@@ -1901,6 +1965,17 @@ select,
 
 .btn {
   gap: 6px;
+}
+
+.data-table .cell-cover {
+  width: 54px;
+}
+
+.request-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
 }
 
 .table-wrap {
