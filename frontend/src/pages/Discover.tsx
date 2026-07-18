@@ -1,9 +1,123 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { SearchResponse, SearchResult } from "../api/types";
+import type { DiscoverItem, DiscoverResponse, SearchResponse, SearchResult } from "../api/types";
 import { EmptyState, MediaBadge, Spinner, StatusPill, Toolbar } from "../components/common";
 import { SearchIcon } from "../components/icons";
+
+function DiscoverCard({
+  item,
+  requested,
+  onRequested,
+}: {
+  item: DiscoverItem;
+  requested: boolean;
+  onRequested: (key: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const key = `${item.provider}-${item.provider_id}`;
+  const request = useMutation({
+    mutationFn: () =>
+      api.post("/requests", {
+        media_type: item.media_type,
+        provider: item.provider,
+        provider_id: item.provider_id,
+        title: item.title,
+        english_title: item.english_title,
+        year: item.year,
+        cover_url: item.cover_url,
+        description: item.description,
+      }),
+    onSuccess: () => {
+      onRequested(key);
+      queryClient.invalidateQueries({ queryKey: ["requests"] });
+    },
+  });
+
+  const displayTitle = item.english_title || item.title;
+  return (
+    <div className="discover-card">
+      {item.cover_url ? (
+        <img src={item.cover_url} alt="" loading="lazy" />
+      ) : (
+        <div className="no-cover">{displayTitle}</div>
+      )}
+      <div className="discover-card-title" title={displayTitle}>
+        {displayTitle}
+      </div>
+      <div className="discover-card-meta">
+        {item.subtitle || (item.year ?? "")}
+        {item.score != null && <span className="discover-score">{item.score}%</span>}
+      </div>
+      {requested ? (
+        <span className="pill orange" style={{ alignSelf: "flex-start" }}>Requested</span>
+      ) : (
+        <button
+          className="btn primary"
+          style={{ padding: "4px 10px", fontSize: 12.5 }}
+          disabled={request.isPending}
+          onClick={() => request.mutate()}
+        >
+          Request
+        </button>
+      )}
+      {request.isError && (
+        <span style={{ color: "var(--danger)", fontSize: 11 }}>
+          {(request.error as Error).message}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function Recommendations() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["discover"],
+    queryFn: () => api.get<DiscoverResponse>("/discover"),
+    staleTime: 5 * 60 * 1000,
+  });
+  // requested-this-session keys keep their "Requested" pill until the next
+  // discover refetch filters them out entirely
+  const [requested, setRequested] = useState<Set<string>>(new Set());
+
+  if (isLoading) return <Spinner />;
+  if (!data || data.sections.length === 0) {
+    return (
+      <EmptyState
+        icon={<SearchIcon size={40} />}
+        title="Search for something to request"
+        hint="Manga results come from mangarr (MangaUpdates); comics from pullarr (ComicVine)."
+      />
+    );
+  }
+  return (
+    <>
+      {Object.keys(data.errors).length > 0 && (
+        <div className="error-banner" style={{ marginBottom: 12 }}>
+          Some recommendation rows could not be loaded.
+        </div>
+      )}
+      {data.sections.map((section) => (
+        <div className="discover-section" key={section.key}>
+          <h3>{section.title}</h3>
+          <div className="discover-row">
+            {section.items.map((item) => {
+              const key = `${item.provider}-${item.provider_id}`;
+              return (
+                <DiscoverCard
+                  key={key}
+                  item={item}
+                  requested={requested.has(key)}
+                  onRequested={(k) => setRequested((prev) => new Set(prev).add(k))}
+                />
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
 
 function ResultCard({ result }: { result: SearchResult }) {
   const queryClient = useQueryClient();
@@ -132,13 +246,7 @@ export default function Discover() {
         {!isFetching && query && data && data.results.length === 0 && (
           <EmptyState icon={<SearchIcon size={40} />} title="No results" hint="Try another title or spelling." />
         )}
-        {!query && (
-          <EmptyState
-            icon={<SearchIcon size={40} />}
-            title="Search for something to request"
-            hint="Manga results come from mangarr (MangaUpdates); comics from pullarr (ComicVine)."
-          />
-        )}
+        {!query && <Recommendations />}
         {!isFetching && data && data.results.length > 0 && (
           <div className="results-grid">
             {data.results.map((r) => (

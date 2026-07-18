@@ -97,12 +97,16 @@ class ArrClient:
     async def search(self, query: str) -> list[SearchResult]:
         raise NotImplementedError
 
+    async def list_series(self) -> list[dict[str, Any]]:
+        return await self._request("GET", "/series")
+
     async def add_series(self, provider_id: int, root_folder_id: int, *,
-                         english_title: str = "", alt_titles: list[str] | None = None) -> int:
+                         provider: str = "", english_title: str = "",
+                         alt_titles: list[str] | None = None) -> int:
         """Add the series (monitored, search immediately); returns its id."""
         raise NotImplementedError
 
-    async def find_series_id(self, provider_id: int) -> int | None:
+    async def find_series_id(self, provider_id: int, provider: str = "") -> int | None:
         """Locate an existing library series by metadata provider id."""
         raise NotImplementedError
 
@@ -136,9 +140,13 @@ class MangarrClient(ArrClient):
         ]
 
     async def add_series(self, provider_id: int, root_folder_id: int, *,
-                         english_title: str = "", alt_titles: list[str] | None = None) -> int:
+                         provider: str = "", english_title: str = "",
+                         alt_titles: list[str] | None = None) -> int:
+        # mangarr accepts either metadata provider; discovery items are
+        # AniList, search results are MangaUpdates
+        id_key = "anilist_id" if provider == "anilist" else "mangaupdates_id"
         data = await self._request("POST", "/series", json={
-            "mangaupdates_id": provider_id,
+            id_key: provider_id,
             "root_folder_id": root_folder_id,
             "monitored": True,
             "search_now": True,
@@ -147,10 +155,10 @@ class MangarrClient(ArrClient):
         })
         return int(data["id"])
 
-    async def find_series_id(self, provider_id: int) -> int | None:
-        data = await self._request("GET", "/series")
-        for s in data:
-            if s.get("mangaupdates_id") == provider_id:
+    async def find_series_id(self, provider_id: int, provider: str = "") -> int | None:
+        id_key = "anilist_id" if provider == "anilist" else "mangaupdates_id"
+        for s in await self.list_series():
+            if s.get(id_key) == provider_id:
                 return int(s["id"])
         return None
 
@@ -190,7 +198,8 @@ class PullarrClient(ArrClient):
         ]
 
     async def add_series(self, provider_id: int, root_folder_id: int, *,
-                         english_title: str = "", alt_titles: list[str] | None = None) -> int:
+                         provider: str = "", english_title: str = "",
+                         alt_titles: list[str] | None = None) -> int:
         data = await self._request("POST", "/series", json={
             "comicvine_id": provider_id,
             "root_folder_id": root_folder_id,
@@ -199,9 +208,8 @@ class PullarrClient(ArrClient):
         })
         return int(data["id"])
 
-    async def find_series_id(self, provider_id: int) -> int | None:
-        data = await self._request("GET", "/series")
-        for s in data:
+    async def find_series_id(self, provider_id: int, provider: str = "") -> int | None:
+        for s in await self.list_series():
             if s.get("comicvine_id") == provider_id:
                 return int(s["id"])
         return None
@@ -214,6 +222,12 @@ class PullarrClient(ArrClient):
             total_count=int(data.get("issue_count") or 0),
             downloaded_count=int(data.get("downloaded_count") or 0),
         )
+
+    async def discover_releases(self, days: int, first_issues: bool) -> list[dict[str, Any]]:
+        """Recent store releases grouped by volume (pullarr proxies ComicVine)."""
+        return await self._request("GET", "/discover/releases", params={
+            "days": days, "first_issues": str(first_issues).lower(),
+        })
 
 
 def client_for(media_type: MediaType, values: dict[str, str]) -> ArrClient:
