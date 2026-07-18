@@ -38,6 +38,14 @@ class UserUpdateIn(BaseModel):
     is_admin: bool | None = None
 
 
+class PasswordChangeIn(BaseModel):
+    """Self-service change: proving the old password is what separates this
+    from an admin reset."""
+
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 # ------------------------------------------------------------------ search
 
 class SearchResultOut(BaseModel):

@@ -1,11 +1,14 @@
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
 import { api, appVersion } from "../api/client";
 import type { MediaRequest, User } from "../api/types";
-import { InboxIcon, LogOutIcon, SearchIcon, SettingsIcon, UsersIcon } from "./icons";
+import { InboxIcon, KeyIcon, LogOutIcon, SearchIcon, SettingsIcon, UsersIcon } from "./icons";
+import { ChangePasswordModal } from "./password";
 
 export default function Sidebar({ me }: { me: User }) {
   const queryClient = useQueryClient();
+  const [changingPassword, setChangingPassword] = useState(false);
   // pending-approval badge for admins
   const { data: pending } = useQuery({
     queryKey: ["requests", "all"],
@@ -61,16 +64,25 @@ export default function Sidebar({ me }: { me: User }) {
             {me.is_admin && <span style={{ color: "var(--text-faint)" }}> · admin</span>}
           </span>
           <button
+            onClick={() => setChangingPassword(true)}
+            title="Change password"
+            aria-label="Change password"
+            style={{ color: "var(--text-dim)", display: "inline-flex", marginLeft: "auto" }}
+          >
+            <KeyIcon size={15} />
+          </button>
+          <button
             onClick={logout}
             title="Sign out"
             aria-label="Sign out"
-            style={{ color: "var(--accent-hover)", display: "inline-flex", marginLeft: "auto" }}
+            style={{ color: "var(--accent-hover)", display: "inline-flex" }}
           >
             <LogOutIcon size={15} />
           </button>
         </div>
         v{appVersion()}
       </div>
+      {changingPassword && <ChangePasswordModal onClose={() => setChangingPassword(false)} />}
     </div>
   );
 }

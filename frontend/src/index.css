@@ -17,6 +17,25 @@
   --info: #5d9cec;
   --sidebar-width: 210px;
   --toolbar-height: 60px;
+
+  /* Form-control type scale. Every input/select/textarea must size itself
+     from one of these — never a literal px — because iOS Safari zooms the
+     whole page when a focused control is under 16px, and a per-rule px
+     value silently beats the mobile override on specificity. */
+  --control-font-size: 14px;
+  --control-font-size-sm: 13px;
+  --control-font-size-lg: 15px;
+}
+
+/* Touch devices: every control goes to 16px, the threshold below which iOS
+   auto-zooms on focus. Width alone is not the test — an iPad in landscape is
+   wider than 768px and zooms just the same. */
+@media (max-width: 768px), (pointer: coarse) {
+  :root {
+    --control-font-size: 16px;
+    --control-font-size-sm: 16px;
+    --control-font-size-lg: 16px;
+  }
 }
 
 * {
@@ -29,6 +48,15 @@ html,
 body,
 #root {
   height: 100%;
+  /* dvh tracks the mobile URL bar; the % above is the fallback for browsers
+     without it. Every height below this chain is a % of these, so the app
+     and the body can never disagree about where the bottom is. */
+  height: 100dvh;
+}
+
+html {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;  /* no reflow-zoom on orientation change */
 }
 
 body {
@@ -54,8 +82,10 @@ button {
 }
 
 input,
-select {
+select,
+textarea {
   font: inherit;
+  font-size: var(--control-font-size);
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -1099,13 +1129,11 @@ h4.link-text:hover {
   }
 
   .app {
-    height: 100dvh;
+    height: 100%;
   }
 
-  /* 16px inputs stop iOS Safari from zooming the page on focus */
   input,
   select {
-    font-size: 16px;
     min-height: 42px;
   }
 
@@ -1550,6 +1578,70 @@ h4.link-text:hover {
     grid-area: 2 / 2;
   }
 
+  /* a stacked table fits the screen; without this the wrapper keeps forcing
+     it to 640px and the row scrolls sideways anyway */
+  /* .table-wrap .data-table sets min-width: 640px later in the file, so this
+     has to out-specify it rather than rely on order */
+  .table-wrap .data-table.card-table {
+    min-width: 0;
+  }
+
+  .table-wrap:has(.card-table) {
+    overflow-x: visible;
+  }
+
+  /* requests: [cover] title …… status / type · by · progress / actions */
+  .request-table tr {
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+    padding: 12px;
+    gap: 6px 8px;
+  }
+
+  .request-table .cell-cover {
+    grid-area: 1 / 1 / 4 / 2;
+    align-self: start;
+    margin-right: 4px;
+  }
+
+  .request-table .cell-rqtitle {
+    grid-area: 1 / 2 / 2 / 5;
+    word-break: break-word;
+  }
+
+  .request-table .cell-status {
+    grid-area: 1 / 5 / 2 / 6;
+    justify-self: end;
+  }
+
+  /* the "Requested By" column only exists for admins, so let the meta cells
+     place themselves along row 2 rather than pinning each to a column */
+  .request-table .cell-type,
+  .request-table .cell-user,
+  .request-table .cell-progress {
+    grid-row: 2;
+    align-self: center;
+    color: var(--text-dim);
+    font-size: 12.5px;
+  }
+
+  .request-table .cell-actions {
+    grid-area: 3 / 2 / 4 / 6;
+  }
+
+  /* full-width tap targets instead of a sideways scroll to reach them */
+  .request-table .request-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .request-table .request-actions .btn:not(.icon-btn) {
+    flex: 1;
+    min-width: 96px;
+    justify-content: center;
+  }
+
   /* any other table (rename previews, file lists…) scrolls sideways instead */
   .data-table:not(.card-table) {
     display: block;
@@ -1722,6 +1814,7 @@ h4.link-text:hover {
 
 .login-card input {
   width: 100%;
+  font-size: var(--control-font-size-sm);
 }
 
 .login-switch {
@@ -1836,7 +1929,7 @@ h4.link-text:hover {
 .search-bar input {
   flex: 1;
   max-width: 520px;
-  font-size: 15px;
+  font-size: var(--control-font-size-lg);
   padding: 10px 14px;
 }
 
@@ -1874,6 +1967,17 @@ select,
   gap: 6px;
 }
 
+.data-table .cell-cover {
+  width: 54px;
+}
+
+.request-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 .table-wrap {
   overflow-x: auto;
   border-radius: 6px;
@@ -1886,14 +1990,6 @@ select,
 /* ---------- mobile layout ---------- */
 
 @media (max-width: 768px) {
-  /* iOS zooms into focused fields with font-size < 16px — keep every
-     input at 16px on small screens so the page never auto-zooms */
-  input,
-  select,
-  textarea {
-    font-size: 16px;
-  }
-
   .app {
     flex-direction: column-reverse;
   }
@@ -1906,7 +2002,6 @@ select,
     bottom: 0;
     width: 100%;
     min-width: 0;
-    height: auto;
     flex-direction: row;
     border-right: none;
     border-top: 1px solid var(--border);
@@ -1959,7 +2054,6 @@ select,
 
   .main {
     height: 100%;
-    padding-bottom: calc(54px + env(safe-area-inset-bottom));
   }
 
   .toolbar {
@@ -2290,6 +2384,7 @@ select,
 .chapter-filter {
   flex: 1;
   min-width: 180px;
+  font-size: var(--control-font-size-sm);
   padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -2394,4 +2489,17 @@ select,
   .chapter-volume {
     display: none;
   }
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.form-hint {
+  color: var(--warning);
+  font-size: 12.5px;
+  margin-top: 4px;
 }

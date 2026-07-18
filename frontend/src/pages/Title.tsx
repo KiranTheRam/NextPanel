@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Chapter, TitleDetail } from "../api/types";
 import { EmptyState, MediaBadge, Spinner, Toolbar } from "../components/common";
-import { CheckIcon, SearchIcon } from "../components/icons";
+import { CheckIcon, ChevronLeftIcon, SearchIcon } from "../components/icons";
 import RequestButton from "../components/RequestButton";
 
 const SERIES_STATUS: Record<string, { label: string; color: string }> = {
@@ -106,6 +106,28 @@ function ChapterList({ detail }: { detail: TitleDetail }) {
   );
 }
 
+/**
+ * Back to wherever you came from — search results, a discover row, or the
+ * requests list — rather than always to the Discover home. Opening a title
+ * from a cold link has nothing to go back to, so that case falls through to
+ * Discover instead of leaving the app.
+ */
+function BackButton() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  // react-router stamps an index onto history entries it created; index 0 (or
+  // a missing one) means this entry is the first of the session
+  const historyIndex = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+  const canGoBack = historyIndex > 0 && location.key !== "default";
+
+  return (
+    <button className="btn" onClick={() => (canGoBack ? navigate(-1) : navigate("/"))}>
+      <ChevronLeftIcon size={15} />
+      Back
+    </button>
+  );
+}
+
 export default function Title() {
   const { mediaType, provider, providerId } = useParams();
   const [params] = useSearchParams();
@@ -128,10 +150,11 @@ export default function Title() {
         : (error as Error)?.message;
     return (
       <>
-        <Toolbar title="Title" />
+        <Toolbar>
+          <BackButton />
+        </Toolbar>
         <div className="content">
           <EmptyState icon={<SearchIcon size={40} />} title="Not found" hint={message} />
-          <Link className="btn" to="/">Back to Discover</Link>
         </div>
       </>
     );
@@ -147,7 +170,7 @@ export default function Title() {
   return (
     <>
       <Toolbar>
-        <Link className="btn" to="/">← Discover</Link>
+        <BackButton />
       </Toolbar>
       <div className="content title-page">
         {data.banner_url && (

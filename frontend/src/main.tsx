@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { initClient } from "./api/client";
+import { disablePageZoom } from "./nozoom";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -11,6 +12,8 @@ const queryClient = new QueryClient({
     queries: { refetchOnWindowFocus: false, retry: 1 },
   },
 });
+
+disablePageZoom();
 
 const rootEl = document.getElementById("root")!;
 

@@ -91,3 +91,54 @@ async def test_admin_user_management(client, admin):
 
     resp = await client.delete(f"/api/v1/users/{kid_id}")
     assert resp.status_code == 204
+
+
+async def test_change_own_password(client, admin):
+    resp = await client.post("/api/v1/auth/password", json={
+        "current_password": "hunter22", "new_password": "newpassword1",
+    })
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["username"] == "admin"
+
+    # the caller keeps working on a freshly issued session
+    assert (await client.get("/api/v1/auth/me")).status_code == 200
+
+    # and the new password is the one that logs in
+    await client.post("/api/v1/auth/logout")
+    resp = await client.post(
+        "/api/v1/auth/login", json={"username": "admin", "password": "hunter22"}
+    )
+    assert resp.status_code == 401
+    resp = await client.post(
+        "/api/v1/auth/login", json={"username": "admin", "password": "newpassword1"}
+    )
+    assert resp.status_code == 200
+
+
+async def test_change_password_requires_the_current_one(client, admin):
+    resp = await client.post("/api/v1/auth/password", json={
+        "current_password": "notmypassword", "new_password": "newpassword1",
+    })
+    assert resp.status_code == 403
+    assert "Current password" in resp.json()["detail"]
+
+    # unchanged: the original password still works
+    await client.post("/api/v1/auth/logout")
+    resp = await client.post(
+        "/api/v1/auth/login", json={"username": "admin", "password": "hunter22"}
+    )
+    assert resp.status_code == 200
+
+
+async def test_change_password_rejects_short_new_password(client, admin):
+    resp = await client.post("/api/v1/auth/password", json={
+        "current_password": "hunter22", "new_password": "short",
+    })
+    assert resp.status_code == 422
+
+
+async def test_change_password_requires_login(client):
+    resp = await client.post("/api/v1/auth/password", json={
+        "current_password": "hunter22", "new_password": "newpassword1",
+    })
+    assert resp.status_code == 401
