@@ -1,0 +1,11 @@
+services:
+  nextpanel:
+    image: kirantheram/nextpanel:latest
+    container_name: nextpanel
+    ports:
+      - "6995:6995"
+    volumes:
+      - ./data/nextpanel-config:/config
+    restart: unless-stopped
+    # Put nextpanel on the same Docker network as mangarr and pullarr so the
+    # Settings URLs can simply be http://mangarr:6996 and http://pullarr:6997.

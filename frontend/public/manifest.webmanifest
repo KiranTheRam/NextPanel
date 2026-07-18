@@ -1,0 +1,15 @@
+{
+  "name": "NextPanel",
+  "short_name": "NextPanel",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1d24",
+  "theme_color": "#20242c",
+  "icons": [
+    {
+      "src": "/nextpanel-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
