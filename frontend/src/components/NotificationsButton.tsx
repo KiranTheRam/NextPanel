@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { currentSubscription, disablePush, enablePush, pushSupported } from "../api/push";
+import {
+  disablePush,
+  enablePush,
+  pushSupported,
+  syncPushSubscription,
+} from "../api/push";
 import { BellIcon, BellOffIcon } from "./icons";
 
 /** Toggle web-push notifications for this device. Hidden when the browser
@@ -10,7 +15,9 @@ export default function NotificationsButton() {
 
   useEffect(() => {
     if (!pushSupported()) return;
-    currentSubscription()
+    // A browser subscription can outlive the login that created it. Syncing
+    // here reassigns it to the current account after an SSO/account change.
+    syncPushSubscription()
       .then((sub) => setState(sub ? "on" : "off"))
       .catch(() => setState("off"));
   }, []);

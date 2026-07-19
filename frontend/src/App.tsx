@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { api, ApiError } from "./api/client";
+import { pushSupported, syncPushSubscription } from "./api/push";
 import type { User } from "./api/types";
 import { Spinner } from "./components/common";
 import Sidebar from "./components/Sidebar";
@@ -17,6 +19,16 @@ export default function App() {
     queryFn: () => api.get<User>("/auth/me"),
     retry: false,
   });
+
+  useEffect(() => {
+    if (!me || !pushSupported()) return;
+    // Push endpoints survive logout, so make sure an existing endpoint follows
+    // the authenticated user after an account or SSO identity change.
+    syncPushSubscription().catch(() => {
+      // Delivery failures remain visible through the notification control;
+      // they should not prevent the application from loading.
+    });
+  }, [me?.id]);
 
   if (isLoading) {
     return (

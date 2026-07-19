@@ -41,6 +41,23 @@ async def test_subscribe_and_replace(client, admin):
     assert rows == []
 
 
+async def test_existing_device_subscription_moves_to_current_user(client, admin):
+    assert (await client.post("/api/v1/push/subscribe", json=SUB)).status_code == 204
+
+    from nextpanel.main import app
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as reader:
+        reader_user = await register_user(reader)
+        assert (await reader.post("/api/v1/push/subscribe", json=SUB)).status_code == 204
+
+    async with session_scope() as session:
+        rows = (await session.execute(select(PushSubscription))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].user_id == reader_user["id"]
+
+
 async def test_push_requires_login(client):
     assert (await client.get("/api/v1/push/key")).status_code == 401
     assert (await client.post("/api/v1/push/subscribe", json=SUB)).status_code == 401
