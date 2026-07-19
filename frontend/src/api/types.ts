@@ -14,11 +14,14 @@ export interface User {
   is_admin: boolean;
   created_at: string;
   request_count: number;
+  sso_only: boolean;
 }
 
 export interface AuthStatus {
   setup_required: boolean;
   registration_enabled: boolean;
+  sso_enabled: boolean;
+  local_login_enabled: boolean;
 }
 
 export interface SearchResult {

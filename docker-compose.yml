@@ -7,5 +7,13 @@ services:
     volumes:
       - ./data/nextpanel-config:/config
     restart: unless-stopped
+    # To enable Cloudflare Access SSO, uncomment and fill these values. Start
+    # with local login enabled, verify SSO, then change it to "false" if you
+    # want Cloudflare to be the only login method.
+    # environment:
+    #   NEXTPANEL_CLOUDFLARE_ACCESS_TEAM_DOMAIN: https://your-team.cloudflareaccess.com
+    #   NEXTPANEL_CLOUDFLARE_ACCESS_AUDIENCE: your-application-aud-tag
+    #   NEXTPANEL_CLOUDFLARE_ACCESS_ADMIN_EMAILS: you@example.com
+    #   NEXTPANEL_LOCAL_LOGIN_ENABLED: "true"
     # Put nextpanel on the same Docker network as mangarr and pullarr so the
     # Settings URLs can simply be http://mangarr:6996 and http://pullarr:6997.

@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { ConnectionTest, RootFolder, Settings as SettingsType } from "../api/types";
+import type {
+  AuthStatus,
+  ConnectionTest,
+  RootFolder,
+  Settings as SettingsType,
+} from "../api/types";
 import { Spinner, Toggle, Toolbar } from "../components/common";
 
 function AppConnection({
@@ -115,6 +120,10 @@ export default function Settings() {
     queryKey: ["settings"],
     queryFn: () => api.get<SettingsType>("/settings"),
   });
+  const { data: authStatus } = useQuery({
+    queryKey: ["authStatus"],
+    queryFn: () => api.get<AuthStatus>("/auth/status"),
+  });
 
   const [form, setForm] = useState<SettingsType>({});
   useEffect(() => {
@@ -209,11 +218,17 @@ export default function Settings() {
 
         <div className="settings-section">
           <h3>Access</h3>
+          <p className="section-hint">
+            Cloudflare Access SSO is {authStatus?.sso_enabled ? "enabled" : "not configured"}.
+            Configure its team domain and application audience with container environment
+            variables. Local login is {authStatus?.local_login_enabled ? "enabled" : "disabled"}.
+          </p>
           <div className="form-row">
             <label>Open registration</label>
             <Toggle
-              on={form.registration_enabled === "true"}
+              on={!!authStatus?.local_login_enabled && form.registration_enabled === "true"}
               onChange={setBool("registration_enabled")}
+              disabled={!authStatus?.local_login_enabled}
             />
             <span style={{ color: "var(--text-faint)", fontSize: 13 }}>
               Let anyone who can reach this page create an account. Off = admins create users.

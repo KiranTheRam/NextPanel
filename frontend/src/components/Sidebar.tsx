@@ -2,13 +2,17 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
 import { api, appVersion } from "../api/client";
-import type { MediaRequest, User } from "../api/types";
+import type { AuthStatus, MediaRequest, User } from "../api/types";
 import { InboxIcon, KeyIcon, LogOutIcon, SearchIcon, SettingsIcon, UsersIcon } from "./icons";
 import { ChangePasswordModal } from "./password";
 
 export default function Sidebar({ me }: { me: User }) {
   const queryClient = useQueryClient();
   const [changingPassword, setChangingPassword] = useState(false);
+  const { data: authStatus } = useQuery({
+    queryKey: ["authStatus"],
+    queryFn: () => api.get<AuthStatus>("/auth/status"),
+  });
   // pending-approval badge for admins
   const { data: pending } = useQuery({
     queryKey: ["requests", "all"],
@@ -32,7 +36,7 @@ export default function Sidebar({ me }: { me: User }) {
   const logout = async () => {
     await api.post("/auth/logout");
     queryClient.clear();
-    window.location.href = "/";
+    window.location.href = authStatus?.sso_enabled ? "/cdn-cgi/access/logout" : "/";
   };
 
   return (
@@ -63,14 +67,16 @@ export default function Sidebar({ me }: { me: User }) {
             {me.username}
             {me.is_admin && <span style={{ color: "var(--text-faint)" }}> · admin</span>}
           </span>
-          <button
-            onClick={() => setChangingPassword(true)}
-            title="Change password"
-            aria-label="Change password"
-            style={{ color: "var(--text-dim)", display: "inline-flex", marginLeft: "auto" }}
-          >
-            <KeyIcon size={15} />
-          </button>
+          {authStatus?.local_login_enabled && (
+            <button
+              onClick={() => setChangingPassword(true)}
+              title="Change password"
+              aria-label="Change password"
+              style={{ color: "var(--text-dim)", display: "inline-flex", marginLeft: "auto" }}
+            >
+              <KeyIcon size={15} />
+            </button>
+          )}
           <button
             onClick={logout}
             title="Sign out"

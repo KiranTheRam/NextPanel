@@ -45,6 +45,9 @@ def hash_token(token: str) -> str:
 # verified against when a login names a nonexistent user, so the response
 # takes as long as a real password check (no username enumeration by timing)
 DUMMY_PASSWORD_HASH = hash_password("nextpanel-timing-equalizer")
+# JIT-provisioned Cloudflare users cannot authenticate with a local password.
+# An admin can deliberately give one a password later if local login is on.
+UNUSABLE_PASSWORD_HASH = "disabled$cloudflare-access"
 
 
 # Covers are displayed in other users' browsers.  Do not let a requester turn

@@ -16,9 +16,10 @@ via webhooks from both apps (with scheduled polling as a fallback).
 
 ## Features
 
-- **Multi-user with admin approval** — local accounts (admins create users;
-  open registration is off by default and can be toggled on), users see their
-  own requests, admins see everything and approve/deny with one click.
+- **Multi-user with admin approval** — Cloudflare Access SSO with automatic
+  user provisioning, plus optional local accounts (admins create users; open
+  registration is off by default and can be toggled on). Users see their own
+  requests; admins see everything and approve/deny with one click.
   Denials can carry a reason, and a denied title can be re-requested (it goes
   back to pending).
 - **Unified search** — one search box across both libraries. Manga results
@@ -143,9 +144,81 @@ Environment variables (all optional):
 | `NEXTPANEL_PORT`     | `6995`  | HTTP port                           |
 | `NEXTPANEL_DATA_DIR` | `data`  | SQLite DB location                  |
 | `NEXTPANEL_SESSION_COOKIE_SECURE` | `true` | Set `false` only for local HTTP development |
+| `NEXTPANEL_CLOUDFLARE_ACCESS_TEAM_DOMAIN` | empty | Access issuer, e.g. `https://your-team.cloudflareaccess.com` |
+| `NEXTPANEL_CLOUDFLARE_ACCESS_AUDIENCE` | empty | Application Audience (AUD) tag; both SSO values are required |
+| `NEXTPANEL_CLOUDFLARE_ACCESS_ADMIN_EMAILS` | empty | Optional comma-separated SSO identities to promote to admin |
+| `NEXTPANEL_LOCAL_LOGIN_ENABLED` | `true` | Set `false` to disable setup, login, registration, password changes, and local user creation after SSO is configured |
 
 Everything else (app URLs/keys, root folders, webhook secret, poll interval,
 registration) lives in the UI under Settings and is stored in the DB.
+
+## Cloudflare Zero Trust SSO
+
+NextPanel consumes the signed identity assertion that Cloudflare Access sends
+to the origin. It verifies the JWT signature against your team's rotating
+public keys as well as its issuer, application audience, expiry, token type,
+and user identity. It does not trust an email header by itself.
+
+### Initial setup
+
+1. In **Cloudflare Zero Trust → Access controls → Applications**, add a
+   self-hosted application for the complete public NextPanel hostname. Add an
+   Allow policy containing the emails, groups, or IdP rules that may use
+   NextPanel. Do not create a Bypass policy for the main application.
+2. Open the application's **Additional settings** and copy its **Application
+   Audience (AUD) Tag**. Your team domain is
+   `https://<team-name>.cloudflareaccess.com`.
+3. Set the following on the NextPanel container and recreate it:
+
+   ```yaml
+   environment:
+     NEXTPANEL_CLOUDFLARE_ACCESS_TEAM_DOMAIN: https://your-team.cloudflareaccess.com
+     NEXTPANEL_CLOUDFLARE_ACCESS_AUDIENCE: paste-the-application-aud-tag
+     NEXTPANEL_CLOUDFLARE_ACCESS_ADMIN_EMAILS: you@example.com
+     NEXTPANEL_LOCAL_LOGIN_ENABLED: "true"
+   ```
+
+4. Visit NextPanel using the Cloudflare-protected hostname. NextPanel signs
+   you in automatically. On an empty database, the first SSO identity is the
+   admin. On an existing installation, an SSO email matching a local username
+   uses that account; otherwise a new non-admin profile is created. The
+   optional admin-email variable also promotes matching identities.
+5. After verifying SSO and admin access, set
+   `NEXTPANEL_LOCAL_LOGIN_ENABLED: "false"` and recreate the container. This
+   removes and rejects every username/password entry point. The flag only
+   takes effect when both valid-looking SSO settings are present, which avoids
+   disabling local login due to an incomplete configuration.
+
+Cloudflare normally protects the webhook URLs too. Mangarr and pullarr do not
+currently send Cloudflare Access credentials, so create a more-specific
+self-hosted Access application for `/api/v1/webhooks/*` with a Bypass policy,
+and leave NextPanel's webhook secret enabled. This exposes only the webhook
+route, which still requires `X-Webhook-Secret`; never bypass the whole
+hostname.
+
+Cloudflare documents the assertion header, signing-key endpoint, issuer, and
+AUD validation in [Validate JWTs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
+The NextPanel sign-out button also opens Cloudflare's documented
+[`/cdn-cgi/access/logout` endpoint](https://developers.cloudflare.com/cloudflare-one/faq/authentication-faq/),
+so signing out does not immediately and silently sign the same Access identity
+back in.
+
+### Adding and removing SSO-only users
+
+- To add a user, add their email/group to the NextPanel application's
+  Cloudflare Access Allow policy. There is nothing to create in NextPanel and
+  no password to distribute. Their non-admin NextPanel profile appears on
+  their first visit.
+- To grant NextPanel admin rights, toggle **Admin** for their profile under
+  **Users** after that first visit, or add the exact email to
+  `NEXTPANEL_CLOUDFLARE_ACCESS_ADMIN_EMAILS` and restart.
+- To remove access, remove the identity from the Cloudflare Allow policy (and
+  revoke its Access session when immediate removal is needed). You may then
+  delete the old profile under **Users** to remove its NextPanel data.
+
+SSO-only profiles have an unusable password hash. If local login is later
+re-enabled, those users still cannot use it unless an admin explicitly resets
+their password.
 
 ## Hosting publicly (e.g. Cloudflare tunnel)
 
@@ -159,16 +232,17 @@ applied automatically when the request arrives via HTTPS or an
 response, registration off by default, and a per-user cap on pending
 requests. Still, the deployment rules matter:
 
-- **Create the admin account before exposing the tunnel.** On a fresh
-  install, the first visitor becomes the admin.
+- **Create the admin account before exposing the tunnel, or configure Access
+  first.** On a fresh install the first local setup or verified SSO identity
+  becomes the admin.
 - **Only expose NextPanel — never mangarr or pullarr.** Both siblings hand
   their API key to anyone who can reach `GET /initialize.json`; they must
   stay LAN/tunnel-internal. NextPanel talks to them server-side, so users
   never need to reach them.
 - **Leave open registration off** unless you want strangers submitting
   requests; create accounts for your users instead.
-- Point the tunnel at NextPanel's port only, and consider putting Cloudflare
-  Access in front for an extra auth layer.
+- Point the tunnel at NextPanel's port only. Keep the origin private so every
+  browser request is forced through the Access policy.
 
 ## API notes
 

@@ -61,8 +61,23 @@ export function Modal({
   );
 }
 
-export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
-  return <button type="button" className={`toggle${on ? " on" : ""}`} onClick={() => onChange(!on)} />;
+export function Toggle({
+  on,
+  onChange,
+  disabled = false,
+}: {
+  on: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`toggle${on ? " on" : ""}`}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+    />
+  );
 }
 
 const STATUS_META: Record<RequestStatus, { label: string; color: string }> = {

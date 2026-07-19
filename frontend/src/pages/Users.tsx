@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { User } from "../api/types";
+import type { AuthStatus, User } from "../api/types";
 import { Modal, Spinner, Toggle, Toolbar } from "../components/common";
 import { KeyIcon, PlusIcon, XIcon } from "../components/icons";
 import {
@@ -59,6 +59,10 @@ export default function Users({ me }: { me: User }) {
     queryKey: ["users"],
     queryFn: () => api.get<User[]>("/users"),
   });
+  const { data: authStatus } = useQuery({
+    queryKey: ["authStatus"],
+    queryFn: () => api.get<AuthStatus>("/auth/status"),
+  });
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,9 +97,11 @@ export default function Users({ me }: { me: User }) {
   return (
     <>
       <Toolbar title="Users">
-        <button className="btn primary" onClick={() => setCreating(true)}>
-          <PlusIcon size={14} /> New User
-        </button>
+        {authStatus?.local_login_enabled && (
+          <button className="btn primary" onClick={() => setCreating(true)}>
+            <PlusIcon size={14} /> New User
+          </button>
+        )}
       </Toolbar>
       <div className="content">
         {error && (
@@ -120,6 +126,9 @@ export default function Users({ me }: { me: User }) {
                 <td style={{ fontWeight: 500 }}>
                   {u.username}
                   {u.id === me.id && <span style={{ color: "var(--text-faint)" }}> (you)</span>}
+                  {u.sso_only && (
+                    <span style={{ color: "var(--text-faint)", fontSize: 11 }}> · SSO only</span>
+                  )}
                 </td>
                 <td>{u.request_count}</td>
                 <td>
@@ -134,14 +143,16 @@ export default function Users({ me }: { me: User }) {
                   {new Date(u.created_at).toLocaleDateString()}
                 </td>
                 <td style={{ textAlign: "right" }}>
-                  <button
-                    className="btn icon-btn"
-                    title={u.id === me.id ? "Change your password" : `Reset ${u.username}'s password`}
-                    aria-label="Reset password"
-                    onClick={() => setResetting(u)}
-                  >
-                    <KeyIcon size={14} />
-                  </button>
+                  {authStatus?.local_login_enabled && (
+                    <button
+                      className="btn icon-btn"
+                      title={u.id === me.id ? "Change your password" : `Reset ${u.username}'s password`}
+                      aria-label="Reset password"
+                      onClick={() => setResetting(u)}
+                    >
+                      <KeyIcon size={14} />
+                    </button>
+                  )}
                   {u.id !== me.id && (
                     <button
                       className="btn icon-btn"
