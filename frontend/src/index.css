@@ -1130,6 +1130,10 @@ h4.link-text:hover {
     --bottom-nav-total-height: calc(
       var(--bottom-nav-height) + var(--bottom-nav-safe-area)
     );
+    /* Some iOS standalone views end the layout viewport above the home
+       indicator even with viewport-fit=cover. Extend the bar through that
+       exposed inset instead of leaving a second strip of page background. */
+    --bottom-nav-bottom-offset: calc(0px - var(--bottom-nav-safe-area));
   }
 
   .app {
@@ -1175,7 +1179,7 @@ h4.link-text:hover {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--bottom-nav-bottom-offset);
     z-index: 50;
     width: auto;
     min-width: 0;
@@ -1253,7 +1257,7 @@ h4.link-text:hover {
 
   /* keep scrolling content clear of the fixed tab bar */
   .main {
-    padding-bottom: var(--bottom-nav-total-height);
+    padding-bottom: var(--bottom-nav-height);
   }
 
   /* ----- toolbar ----- */
@@ -2005,7 +2009,7 @@ select,
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--bottom-nav-bottom-offset);
     width: 100%;
     min-width: 0;
     flex-direction: row;
