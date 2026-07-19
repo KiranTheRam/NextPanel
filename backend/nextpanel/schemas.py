@@ -11,6 +11,8 @@ from .security import safe_cover_url
 class AuthStatusOut(BaseModel):
     setup_required: bool
     registration_enabled: bool
+    sso_enabled: bool
+    local_login_enabled: bool
 
 
 class CredentialsIn(BaseModel):
@@ -25,6 +27,7 @@ class UserOut(BaseModel):
     is_admin: bool
     created_at: datetime
     request_count: int = 0
+    sso_only: bool = False
 
 
 class UserCreateIn(BaseModel):

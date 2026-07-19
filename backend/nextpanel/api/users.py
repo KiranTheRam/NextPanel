@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
+from ..config import config
 from ..models import Request, User
 from ..schemas import UserCreateIn, UserOut, UserUpdateIn
 from ..security import hash_password
@@ -30,6 +31,8 @@ async def list_users(session: AsyncSession = Depends(get_session)):
 
 @router.post("", response_model=UserOut, status_code=201)
 async def create_user(body: UserCreateIn, session: AsyncSession = Depends(get_session)):
+    if not config.local_login_available:
+        raise HTTPException(403, "Local username/password login is disabled")
     username = _clean_username(body.username)
     if await _username_taken(session, username):
         raise HTTPException(409, "Username already taken")
@@ -55,6 +58,8 @@ async def update_user(
     if user is None:
         raise HTTPException(404, "User not found")
     if body.password is not None:
+        if not config.local_login_available:
+            raise HTTPException(403, "Local username/password login is disabled")
         user.password_hash = hash_password(body.password)
         # a password reset must sign out whoever holds the old sessions
         from sqlalchemy import delete

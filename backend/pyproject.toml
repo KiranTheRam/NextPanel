@@ -15,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.5",
     "pywebpush>=2.0",
     "cryptography>=42",
+    "PyJWT[crypto]>=2.9",
 ]
 
 [project.optional-dependencies]

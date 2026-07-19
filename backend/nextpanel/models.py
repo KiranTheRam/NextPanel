@@ -22,6 +22,10 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
+    @property
+    def sso_only(self) -> bool:
+        return not self.password_hash.startswith("scrypt$")
+
     requests: Mapped[list["Request"]] = relationship(
         back_populates="user", foreign_keys="Request.user_id", cascade="all, delete-orphan"
     )
