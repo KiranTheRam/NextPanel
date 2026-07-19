@@ -192,7 +192,6 @@ export default function Discover() {
           <input
             placeholder="Search manga and comics…"
             value={input}
-            autoFocus
             onChange={(e) => setInput(e.target.value)}
           />
           <div className="seg">
