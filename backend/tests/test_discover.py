@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date
 
 import pytest
@@ -18,7 +19,7 @@ def fresh_cache():
 
 
 def anilist_media(media_id: int, romaji: str, english: str = "", year: int = 2026,
-                  synonyms: list[str] | None = None):
+                  synonyms: list[str] | None = None, country: str = "JP"):
     return {
         "id": media_id,
         "title": {"romaji": romaji, "english": english or None},
@@ -30,6 +31,7 @@ def anilist_media(media_id: int, romaji: str, english: str = "", year: int = 202
         "averageScore": 84,
         "popularity": 12345,
         "genres": ["Action"],
+        "countryOfOrigin": country,
     }
 
 
@@ -42,8 +44,8 @@ def test_season_math():
     assert _previous_season(date(2026, 7, 18)) == (date(2026, 4, 1), date(2026, 7, 1))
     assert _previous_season(date(2026, 2, 2)) == (date(2025, 10, 1), date(2026, 1, 1))
     titles = [s["title"] for s in sections_spec(date(2026, 7, 18))]
-    assert "New This Season (Summer 2026)" in titles
-    assert "Top Rated Last Season (Spring 2026)" in titles
+    assert "New Manga This Season (Summer 2026)" in titles
+    assert "Top Rated Manga Last Season (Spring 2026)" in titles
 
 
 @respx.mock
@@ -61,6 +63,44 @@ async def test_discover_sections_and_html_stripping(client, admin):
     assert item["provider_id"] == 101
     assert item["description"] == "Some story"
     assert item["score"] == 84
+
+
+@respx.mock
+async def test_discover_splits_korean_titles_into_manhwa_rows(client, admin):
+    respx.post("https://graphql.anilist.co").mock(
+        return_value=anilist_response(
+            anilist_media(101, "Dandadan"),
+            anilist_media(202, "Solo Leveling", country="KR"),
+        )
+    )
+    data = (await client.get("/api/v1/discover")).json()
+
+    manga_sections = [s for s in data["sections"] if not s["key"].startswith("manhwa_")]
+    manhwa_sections = [s for s in data["sections"] if s["key"].startswith("manhwa_")]
+    assert len(manga_sections) == 4
+    assert len(manhwa_sections) == 4
+    assert all(s["items"][0]["provider_id"] == 101 for s in manga_sections)
+    assert all(s["items"][0]["provider_id"] == 202 for s in manhwa_sections)
+    assert manga_sections[0]["title"] == "Trending Manga"
+    assert manhwa_sections[0]["title"] == "Trending Manhwa"
+
+
+async def test_concurrent_cache_misses_share_one_fetch():
+    calls = 0
+
+    async def fetch():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return ["result"]
+
+    results = await asyncio.gather(
+        discover._cached("shared", fetch),
+        discover._cached("shared", fetch),
+        discover._cached("shared", fetch),
+    )
+    assert results == [["result"], ["result"], ["result"]]
+    assert calls == 1
 
 
 @respx.mock

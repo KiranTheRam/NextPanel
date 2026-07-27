@@ -123,11 +123,9 @@ async def discover(session: AsyncSession = Depends(get_session)):
     values = await settings_service.get_all(session)
     errors: dict[str, str] = {}
     sections: list[dict] = []
-    requests = await load_request_index(session)
 
-    # ---- manga (AniList) ----
     mangarr = MangarrClient(values["mangarr_url"], values["mangarr_api_key"])
-    manga_library = await load_index(mangarr)
+    pullarr = PullarrClient(values["pullarr_url"], values["pullarr_api_key"])
     specs = sections_spec()
 
     async def load_manga(spec: dict) -> list[DiscoverItem]:
@@ -138,30 +136,59 @@ async def discover(session: AsyncSession = Depends(get_session)):
             errors[spec["key"]] = "AniList could not be reached"
             return []
 
-    manga_results = await asyncio.gather(*(load_manga(spec) for spec in specs))
+    async def load_comic(key: str, params: dict) -> list[dict]:
+        try:
+            return await pullarr.discover_releases(**params)
+        except ArrError as exc:
+            log.warning("discover section %s failed: %s", key, exc)
+            errors[key] = "pullarr could not be reached"
+            return []
+
+    async def load_comics() -> tuple[LibraryIndex, list[list[dict]]]:
+        if not pullarr.configured:
+            return LibraryIndex(available=False), []
+        comic_library, comic_results = await asyncio.gather(
+            load_index(pullarr),
+            asyncio.gather(
+                *(load_comic(key, params) for key, _title, params in COMIC_SECTIONS)
+            ),
+        )
+        return comic_library, comic_results
+
+    # None of these reads depend on one another. Keeping both providers, both
+    # libraries, the request index, and every recommendation row in flight at
+    # once makes a cold page load take roughly the duration of the slowest
+    # dependency instead of the sum of all of them.
+    requests, manga_library, manga_results, comic_payload = await asyncio.gather(
+        load_request_index(session),
+        load_index(mangarr),
+        asyncio.gather(*(load_manga(spec) for spec in specs)),
+        load_comics(),
+    )
+    comic_library, comic_results = comic_payload
+
+    # ---- manga and Korean manhwa (AniList) ----
     for spec, items in zip(specs, manga_results):
-        if not items:
-            continue
-        sections.append({
-            "key": spec["key"],
-            "title": spec["title"],
-            "items": [
-                _annotate(_manga_item_out(i), i.titles, manga_library, requests)
-                for i in items[:MAX_ITEMS_PER_SECTION]
-            ],
-        })
+        manga_items = [item for item in items if item.country != "KR"]
+        korean_items = [item for item in items if item.country == "KR"]
+        for key, title, regional_items in (
+            (spec["key"], spec["title"], manga_items),
+            (f"manhwa_{spec['key']}", spec["korean_title"], korean_items),
+        ):
+            if not regional_items:
+                continue
+            sections.append({
+                "key": key,
+                "title": title,
+                "items": [
+                    _annotate(_manga_item_out(i), i.titles, manga_library, requests)
+                    for i in regional_items[:MAX_ITEMS_PER_SECTION]
+                ],
+            })
 
     # ---- comics (ComicVine via pullarr) ----
-    pullarr = PullarrClient(values["pullarr_url"], values["pullarr_api_key"])
     if pullarr.configured:
-        comic_library = await load_index(pullarr)
-        for key, title, params in COMIC_SECTIONS:
-            try:
-                entries = await pullarr.discover_releases(**params)
-            except ArrError as exc:
-                log.warning("discover section %s failed: %s", key, exc)
-                errors[key] = "pullarr could not be reached"
-                continue
+        for (key, title, _params), entries in zip(COMIC_SECTIONS, comic_results):
             items = []
             for entry in entries[:MAX_ITEMS_PER_SECTION]:
                 item = _comic_item_out(entry)

@@ -27,15 +27,18 @@ via webhooks from both apps (with scheduled polling as a fallback).
   ComicVine search — NextPanel proxies the apps, so no extra API keys are
   needed and results show what's already in each library.
 - **Discovery home** — the Discover page opens with recommendation rows.
-  Manga rows come from AniList's public API (no key needed): Trending Now,
-  New This Season, Top Rated Last Season, and All-Time Favorites. Comic rows
-  come from ComicVine via pullarr's key: New Comics This Week and New Comic
-  Series This Month (ComicVine has no popularity data, so comic discovery is
-  recency-based — issues by store date, `#1`s marking new series). Anything
-  already in a library (matched by provider id or title) or already
-  requested is filtered out, and every card is one tap to request. AniList
-  results are cached for 30 minutes; ComicVine results for 6 hours inside
-  pullarr, to stay well within both APIs' rate limits.
+  Manga rows come from AniList's public API (no key needed): Trending,
+  New This Season, Top Rated Last Season, and All-Time Favorites. Korean
+  titles are identified from AniList's origin metadata and shown in matching
+  Manhwa rows instead of being mixed into Manga. Comic rows come from
+  ComicVine via pullarr's key: New Comics This Week and New Comic Series This
+  Month (ComicVine has no popularity data, so comic discovery is recency-based
+  — issues by store date, `#1`s marking new series). Anything already in a
+  library (matched by provider id or title) or already requested stays visible
+  with its current state, and every other card is one tap to request. The
+  independent provider and library reads run concurrently; AniList results
+  are cached for 30 minutes and ComicVine results for 6 hours inside pullarr
+  to stay well within both APIs' rate limits.
 - **Hands-off fulfillment** — approving calls the target app's add-series API
   with `search_now`, so the series is added, monitored, and hunted
   immediately using whatever sources that app has configured. If the series is

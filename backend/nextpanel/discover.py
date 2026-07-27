@@ -4,7 +4,8 @@ AniList's browse queries are public GraphQL (no auth); results are cached
 per section so the whole page costs at most four upstream requests every
 half hour, well inside AniList's rate limits. Manga have no formal
 "seasons", so seasonal sections use start-date quarters (Winter Jan-Mar,
-Spring Apr-Jun, Summer Jul-Sep, Fall Oct-Dec).
+Spring Apr-Jun, Summer Jul-Sep, Fall Oct-Dec). AniList's country metadata
+also lets the API keep Korean manhwa out of the general manga rows.
 """
 
 import asyncio
@@ -41,6 +42,7 @@ query ($perPage: Int, $sort: [MediaSort], $startGreater: FuzzyDateInt, $startLes
       averageScore
       popularity
       genres
+      countryOfOrigin
     }
   }
 }
@@ -86,6 +88,7 @@ class DiscoverItem:
     cover_url: str = ""
     score: int | None = None
     genres: list[str] = field(default_factory=list)
+    country: str = ""
 
     @property
     def titles(self) -> list[str]:
@@ -120,12 +123,14 @@ def sections_spec(today: date | None = None) -> list[dict]:
     return [
         {
             "key": "trending",
-            "title": "Trending Now",
+            "title": "Trending Manga",
+            "korean_title": "Trending Manhwa",
             "variables": {"sort": ["TRENDING_DESC"]},
         },
         {
             "key": "new_season",
-            "title": f"New This Season ({_season_label(current)} {current.year})",
+            "title": f"New Manga This Season ({_season_label(current)} {current.year})",
+            "korean_title": f"New Manhwa This Season ({_season_label(current)} {current.year})",
             # a hair before the quarter so day-one starts are included
             "variables": {
                 "sort": ["POPULARITY_DESC"],
@@ -134,7 +139,14 @@ def sections_spec(today: date | None = None) -> list[dict]:
         },
         {
             "key": "top_last_season",
-            "title": f"Top Rated Last Season ({_season_label(prev_start)} {prev_start.year})",
+            "title": (
+                f"Top Rated Manga Last Season "
+                f"({_season_label(prev_start)} {prev_start.year})"
+            ),
+            "korean_title": (
+                f"Top Rated Manhwa Last Season "
+                f"({_season_label(prev_start)} {prev_start.year})"
+            ),
             "variables": {
                 "sort": ["SCORE_DESC"],
                 "startGreater": _fuzzy(prev_start) - 1,
@@ -143,7 +155,8 @@ def sections_spec(today: date | None = None) -> list[dict]:
         },
         {
             "key": "all_time",
-            "title": "All-Time Favorites",
+            "title": "All-Time Manga Favorites",
+            "korean_title": "All-Time Manhwa Favorites",
             "variables": {"sort": ["FAVOURITES_DESC"]},
         },
     ]
@@ -175,12 +188,27 @@ def _to_item(media: dict) -> DiscoverItem:
         cover_url=safe_cover_url(cover.get("extraLarge") or cover.get("large") or ""),
         score=media.get("averageScore"),
         genres=media.get("genres") or [],
+        country=media.get("countryOfOrigin") or "",
     )
 
 
 # section key (or "media:<id>") -> (fetched_at, payload)
 _cache: dict[str, tuple[float, Any]] = {}
+_inflight: dict[str, asyncio.Task] = {}
 _cache_lock = asyncio.Lock()
+
+
+async def _load_and_cache(key: str, fetch):
+    task = asyncio.current_task()
+    try:
+        value = await fetch()
+        async with _cache_lock:
+            _cache[key] = (time.monotonic(), value)
+        return value
+    finally:
+        async with _cache_lock:
+            if _inflight.get(key) is task:
+                _inflight.pop(key, None)
 
 
 async def _cached(key: str, fetch):
@@ -188,10 +216,14 @@ async def _cached(key: str, fetch):
         cached = _cache.get(key)
         if cached and time.monotonic() - cached[0] < CACHE_TTL_SECONDS:
             return cached[1]
-    value = await fetch()
-    async with _cache_lock:
-        _cache[key] = (time.monotonic(), value)
-    return value
+        task = _inflight.get(key)
+        if task is None:
+            task = asyncio.create_task(_load_and_cache(key, fetch))
+            _inflight[key] = task
+    # One cold-cache request serves every user who opens Discover at the same
+    # time. Shielding keeps a disconnected client from cancelling the shared
+    # upstream request for the remaining waiters.
+    return await asyncio.shield(task)
 
 
 async def _query(query: str, variables: dict) -> dict:
@@ -250,3 +282,6 @@ async def fetch_media(anilist_id: int) -> dict | None:
 def clear_cache() -> None:
     """Test hook."""
     _cache.clear()
+    for task in _inflight.values():
+        task.cancel()
+    _inflight.clear()
