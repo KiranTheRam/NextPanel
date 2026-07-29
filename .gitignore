@@ -2,8 +2,15 @@
 __pycache__/
 *.pyc
 .venv/
+venv/
+env/
 *.egg-info/
 .pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
 # Node
 node_modules/
@@ -16,6 +23,10 @@ backend/static/
 backend/data/
 data/
 *.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
 
 # Editors / OS
 .DS_Store
@@ -24,4 +35,12 @@ data/
 
 # Env
 .env
+.env.*
+!.env.example
 creds.txt
+*.key
+*.pem
+
+# Local container overrides
+docker-compose.override.yml
+docker-compose.override.yaml

@@ -7,14 +7,18 @@ the title fallback catches series added under the other provider (a mangarr
 series added by MangaUpdates id has no AniList id to compare against).
 """
 
+import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from .arr import ArrClient, ArrError, MangarrClient
 
 log = logging.getLogger(__name__)
+
+INDEX_CACHE_TTL_SECONDS = 30
 
 
 def normalize_title(title: str) -> str:
@@ -76,3 +80,71 @@ async def load_index(client: ArrClient) -> LibraryIndex:
             ["title", "english_title", "alt_titles"],
         )
     return _index(series_list, {"comicvine": "comicvine_id"}, ["title"])
+
+
+# Discover requests arrive once per independently rendered row. Coalesce their
+# identical library reads and keep a short stale-while-revalidate snapshot so
+# progressive rendering does not turn into six calls to the same *arr app.
+_index_cache: dict[tuple[str, str, str], tuple[float, LibraryIndex]] = {}
+_index_inflight: dict[tuple[str, str, str], asyncio.Task[LibraryIndex]] = {}
+_index_cache_lock = asyncio.Lock()
+
+
+def _index_cache_key(client: ArrClient) -> tuple[str, str, str]:
+    return client.app_name, client.base_url, client.api_key
+
+
+async def _refresh_index(
+    key: tuple[str, str, str], client: ArrClient
+) -> LibraryIndex:
+    task = asyncio.current_task()
+    try:
+        index = await load_index(client)
+        async with _index_cache_lock:
+            previous = _index_cache.get(key)
+            # A transient outage should not discard a usable stale snapshot.
+            if index.available or previous is None:
+                _index_cache[key] = (time.monotonic(), index)
+                return index
+            _index_cache[key] = (time.monotonic(), previous[1])
+            return previous[1]
+    finally:
+        async with _index_cache_lock:
+            if _index_inflight.get(key) is task:
+                _index_inflight.pop(key, None)
+
+
+async def load_index_cached(client: ArrClient) -> LibraryIndex:
+    """Return a coalesced, briefly cached library index for discovery.
+
+    Fresh snapshots are returned directly. Expired snapshots are returned
+    immediately while one background refresh runs. Only the very first read
+    waits for the target app.
+    """
+    if not client.configured:
+        return LibraryIndex(available=False)
+
+    key = _index_cache_key(client)
+    async with _index_cache_lock:
+        cached = _index_cache.get(key)
+        if cached and time.monotonic() - cached[0] < INDEX_CACHE_TTL_SECONDS:
+            return cached[1]
+
+        task = _index_inflight.get(key)
+        if task is None:
+            task = asyncio.create_task(_refresh_index(key, client))
+            _index_inflight[key] = task
+
+        if cached:
+            return cached[1]
+
+    # Do not let one disconnected browser cancel the shared cold-cache load.
+    return await asyncio.shield(task)
+
+
+def clear_index_cache() -> None:
+    """Test hook."""
+    _index_cache.clear()
+    for task in _index_inflight.values():
+        task.cancel()
+    _index_inflight.clear()
