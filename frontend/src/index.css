@@ -2137,6 +2137,15 @@ select,
   margin-bottom: 10px;
 }
 
+.recommendations-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 12px;
+  padding: 2px 0 24px;
+}
+
 .discover-row {
   display: flex;
   gap: 14px;

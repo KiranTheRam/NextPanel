@@ -35,13 +35,9 @@ query ($perPage: Int, $sort: [MediaSort], $startGreater: FuzzyDateInt, $startLes
       id
       title { romaji english }
       synonyms
-      description(asHtml: false)
       coverImage { extraLarge large }
       startDate { year }
-      status
       averageScore
-      popularity
-      genres
       countryOfOrigin
     }
   }
@@ -201,7 +197,17 @@ _cache_lock = asyncio.Lock()
 async def _load_and_cache(key: str, fetch):
     task = asyncio.current_task()
     try:
-        value = await fetch()
+        try:
+            value = await fetch()
+        except Exception:
+            # An expired value is preferable to dropping a row during a
+            # transient refresh failure. Cold-cache failures still propagate.
+            async with _cache_lock:
+                stale = _cache.get(key)
+            if stale:
+                log.warning("refresh for cached AniList key %s failed; serving stale data", key)
+                return stale[1]
+            raise
         async with _cache_lock:
             _cache[key] = (time.monotonic(), value)
         return value
@@ -220,6 +226,10 @@ async def _cached(key: str, fetch):
         if task is None:
             task = asyncio.create_task(_load_and_cache(key, fetch))
             _inflight[key] = task
+        if cached:
+            # Stale-while-revalidate keeps every visit after the first one
+            # instant while a single background task refreshes the row.
+            return cached[1]
     # One cold-cache request serves every user who opens Discover at the same
     # time. Shielding keeps a disconnected client from cancelling the shared
     # upstream request for the remaining waiters.
@@ -239,6 +249,20 @@ async def fetch_section(key: str, variables: dict) -> list[DiscoverItem]:
         return [_to_item(m) for m in (data.get("Page") or {}).get("media") or []]
 
     return await _cached(key, load)
+
+
+async def warm_sections() -> None:
+    """Populate recommendation caches in the background at server startup."""
+    specs = sections_spec()
+    results = await asyncio.gather(
+        *(fetch_section(spec["key"], spec["variables"]) for spec in specs),
+        return_exceptions=True,
+    )
+    failures = sum(isinstance(result, BaseException) for result in results)
+    if failures:
+        log.warning("AniList cache warm-up failed for %d section(s)", failures)
+    else:
+        log.info("AniList recommendation cache warmed")
 
 
 async def fetch_media(anilist_id: int) -> dict | None:

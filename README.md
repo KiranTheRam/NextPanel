@@ -38,7 +38,11 @@ via webhooks from both apps (with scheduled polling as a fallback).
   with its current state, and every other card is one tap to request. The
   independent provider and library reads run concurrently; AniList results
   are cached for 30 minutes and ComicVine results for 6 hours inside pullarr
-  to stay well within both APIs' rate limits.
+  to stay well within both APIs' rate limits. Each recommendation section is
+  requested independently, so completed rows appear immediately instead of
+  waiting for every provider, and repeated library reads are coalesced into a
+  short-lived stale-while-revalidate snapshot. AniList rows are prewarmed in
+  the background at startup and stale rows remain visible while they refresh.
 - **Hands-off fulfillment** — approving calls the target app's add-series API
   with `search_now`, so the series is added, monitored, and hunted
   immediately using whatever sources that app has configured. If the series is

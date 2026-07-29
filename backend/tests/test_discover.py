@@ -1,11 +1,14 @@
 import asyncio
+import json
+import time
 from datetime import date
 
 import pytest
 import respx
 from httpx import Response
 
-from nextpanel import discover
+from nextpanel import discover, library
+from nextpanel.arr import MangarrClient
 from nextpanel.discover import _previous_season, _season_start, sections_spec
 
 from .test_requests import make_request
@@ -14,8 +17,10 @@ from .test_requests import make_request
 @pytest.fixture(autouse=True)
 def fresh_cache():
     discover.clear_cache()
+    library.clear_index_cache()
     yield
     discover.clear_cache()
+    library.clear_index_cache()
 
 
 def anilist_media(media_id: int, romaji: str, english: str = "", year: int = 2026,
@@ -85,6 +90,53 @@ async def test_discover_splits_korean_titles_into_manhwa_rows(client, admin):
     assert manhwa_sections[0]["title"] == "Trending Manhwa"
 
 
+@respx.mock
+async def test_single_section_endpoint_returns_without_waiting_for_other_rows(client, admin):
+    route = respx.post("https://graphql.anilist.co").mock(
+        return_value=anilist_response(
+            anilist_media(101, "Dandadan"),
+            anilist_media(202, "Solo Leveling", country="KR"),
+        )
+    )
+
+    response = await client.get("/api/v1/discover/sections/trending")
+    assert response.status_code == 200
+    data = response.json()
+    assert [section["key"] for section in data["sections"]] == [
+        "trending", "manhwa_trending",
+    ]
+    assert route.call_count == 1
+
+    # Browse responses only request fields needed to render cards. Full
+    # descriptions and genres remain available through the title endpoint.
+    query = json.loads(route.calls[0].request.content)["query"]
+    assert "description(asHtml: false)" not in query
+    assert "genres" not in query
+    assert "popularity" not in query
+
+
+async def test_unknown_discover_section_is_404(client, admin):
+    response = await client.get("/api/v1/discover/sections/not-a-section")
+    assert response.status_code == 404
+
+
+@respx.mock
+async def test_single_comic_section_only_fetches_requested_row(client, configured):
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    releases_route = respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        return_value=Response(200, json=[comic_entry(10, "Batman (2026)")])
+    )
+
+    response = await client.get("/api/v1/discover/sections/comics_week")
+    assert response.status_code == 200
+    assert [section["key"] for section in response.json()["sections"]] == ["comics_week"]
+    assert releases_route.call_count == 1
+    assert dict(releases_route.calls[0].request.url.params) == {
+        "days": "7",
+        "first_issues": "false",
+    }
+
+
 async def test_concurrent_cache_misses_share_one_fetch():
     calls = 0
 
@@ -101,6 +153,40 @@ async def test_concurrent_cache_misses_share_one_fetch():
     )
     assert results == [["result"], ["result"], ["result"]]
     assert calls == 1
+
+
+async def test_expired_recommendations_render_stale_while_refreshing():
+    refresh_started = asyncio.Event()
+    finish_refresh = asyncio.Event()
+    discover._cache["stale"] = (
+        time.monotonic() - discover.CACHE_TTL_SECONDS - 1,
+        ["old"],
+    )
+
+    async def fetch():
+        refresh_started.set()
+        await finish_refresh.wait()
+        return ["new"]
+
+    assert await discover._cached("stale", fetch) == ["old"]
+    await refresh_started.wait()
+    refresh_task = discover._inflight["stale"]
+    finish_refresh.set()
+    assert await refresh_task == ["new"]
+    assert discover._cache["stale"][1] == ["new"]
+
+
+@respx.mock
+async def test_concurrent_section_library_reads_are_coalesced():
+    route = respx.get("http://mangarr.test/api/v1/series").mock(
+        return_value=Response(200, json=[])
+    )
+    clients = [
+        MangarrClient("http://mangarr.test", "manga-key")
+        for _ in range(4)
+    ]
+    await asyncio.gather(*(library.load_index_cached(client) for client in clients))
+    assert route.call_count == 1
 
 
 @respx.mock

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { DiscoverItem, DiscoverResponse, SearchResponse, SearchResult } from "../api/types";
@@ -59,31 +59,55 @@ function DiscoverCard({ item }: { item: DiscoverItem }) {
   );
 }
 
+const RECOMMENDATION_SECTION_KEYS = [
+  "trending",
+  "new_season",
+  "top_last_season",
+  "all_time",
+  "comics_week",
+  "comics_new_series",
+] as const;
+
 function Recommendations() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["discover"],
-    queryFn: () => api.get<DiscoverResponse>("/discover"),
-    staleTime: 5 * 60 * 1000,
+  const queries = useQueries({
+    queries: RECOMMENDATION_SECTION_KEYS.map((key) => ({
+      queryKey: ["discover", "section", key],
+      queryFn: () => api.get<DiscoverResponse>(`/discover/sections/${key}`),
+      // The upstream AniList data is cached for 30 minutes too. Keeping the
+      // browser cache aligned makes returning to Discover instant.
+      staleTime: 30 * 60 * 1000,
+      gcTime: 60 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    })),
   });
 
-  if (isLoading) return <Spinner />;
-  if (!data || data.sections.length === 0) {
+  // useQueries preserves input order, but each response becomes available
+  // independently. Fast rows render immediately while slower rows continue.
+  const sections = queries.flatMap((query) => query.data?.sections ?? []);
+  const pendingCount = queries.filter((query) => query.isPending).length;
+  const hasErrors = queries.some(
+    (query) => query.isError || Object.keys(query.data?.errors ?? {}).length > 0,
+  );
+
+  if (sections.length === 0 && pendingCount > 0) return <Spinner />;
+  if (sections.length === 0) {
     return (
       <EmptyState
         icon={<SearchIcon size={40} />}
         title="Search for something to request"
-        hint="Manga results come from mangarr (MangaUpdates); comics from pullarr (ComicVine)."
+        hint="Manga and manhwa recommendations come from AniList; comics come from ComicVine."
       />
     );
   }
   return (
     <>
-      {Object.keys(data.errors).length > 0 && (
+      {hasErrors && (
         <div className="error-banner" style={{ marginBottom: 12 }}>
           Some recommendation rows could not be loaded.
         </div>
       )}
-      {data.sections.map((section) => (
+      {sections.map((section) => (
         <div className="discover-section" key={section.key}>
           <h3>{section.title}</h3>
           <div className="discover-row">
@@ -93,6 +117,12 @@ function Recommendations() {
           </div>
         </div>
       ))}
+      {pendingCount > 0 && (
+        <div className="recommendations-progress" aria-live="polite">
+          <span className="mini-spinner" />
+          Loading {pendingCount} more recommendation {pendingCount === 1 ? "section" : "sections"}…
+        </div>
+      )}
     </>
   );
 }

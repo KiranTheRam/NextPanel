@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -5,7 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import __version__, scheduler
+from . import __version__, discover as discover_service, scheduler
 from .api import auth, detail, discover, push, requests, search, settings, users, webhooks
 from .config import config
 from .db import init_db
@@ -21,9 +22,16 @@ log = logging.getLogger("nextpanel")
 async def lifespan(app: FastAPI):
     await init_db()
     await scheduler.start()
+    # Do not make application startup wait on AniList, but start filling the
+    # recommendation cache before the first browser asks for it.
+    discover_warmup = asyncio.create_task(discover_service.warm_sections())
     log.info("NextPanel %s ready on %s:%d", __version__, config.host, config.port)
-    yield
-    scheduler.shutdown()
+    try:
+        yield
+    finally:
+        discover_warmup.cancel()
+        await asyncio.gather(discover_warmup, return_exceptions=True)
+        scheduler.shutdown()
 
 
 app = FastAPI(title="NextPanel", version=__version__, lifespan=lifespan)
