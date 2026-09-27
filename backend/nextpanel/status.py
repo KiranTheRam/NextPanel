@@ -17,7 +17,13 @@ from .models import Request, RequestStatus
 
 log = logging.getLogger(__name__)
 
-ACTIVE_STATUSES = (RequestStatus.PROCESSING, RequestStatus.PARTIALLY_AVAILABLE)
+# Completed ongoing series must still be checked: newly announced chapters can
+# move them back to partially available, and removed series must be surfaced.
+ACTIVE_STATUSES = (
+    RequestStatus.PROCESSING,
+    RequestStatus.PARTIALLY_AVAILABLE,
+    RequestStatus.AVAILABLE,
+)
 
 
 def _status_for(downloaded: int, total: int) -> RequestStatus:

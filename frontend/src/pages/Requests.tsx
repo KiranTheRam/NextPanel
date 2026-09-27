@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { MediaRequest, User } from "../api/types";
-import { EmptyState, MediaBadge, Modal, Spinner, StatusPill, Toolbar } from "../components/common";
+import { invalidateRequestViews } from "../api/cache";
+import { titleHref } from "../api/paths";
+import type { MediaRequest, MediaType, RequestStatus, User } from "../api/types";
+import { EmptyState, LoadError, MediaBadge, Modal, Spinner, StatusPill, Toolbar } from "../components/common";
 import { CheckIcon, InboxIcon, RefreshIcon, XIcon } from "../components/icons";
 import NotificationsButton from "../components/NotificationsButton";
 
@@ -27,7 +30,7 @@ function DenyModal({
   const deny = useMutation({
     mutationFn: () => api.post(`/requests/${request.id}/deny`, { reason }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["requests"] });
+      invalidateRequestViews(queryClient);
       onClose();
     },
   });
@@ -55,7 +58,11 @@ export default function Requests({ me }: { me: User }) {
   const scope = me.is_admin ? "all" : "mine";
   // admins land on the approval queue; switch to All for history
   const [view, setView] = useState<"pending" | "all">(me.is_admin ? "pending" : "all");
-  const { data, isLoading } = useQuery({
+  const [search, setSearch] = useState("");
+  const [requester, setRequester] = useState("");
+  const [mediaFilter, setMediaFilter] = useState<"all" | MediaType>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | RequestStatus>("all");
+  const { data, isLoading, error: loadError, refetch } = useQuery({
     queryKey: ["requests", scope],
     queryFn: () => api.get<MediaRequest[]>(`/requests?scope=${scope}`),
     refetchInterval: 15000,
@@ -64,7 +71,7 @@ export default function Requests({ me }: { me: User }) {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["requests"] });
+    invalidateRequestViews(queryClient);
     setActionError(null);
   };
   const onError = (e: unknown) => setActionError((e as Error).message);
@@ -85,7 +92,7 @@ export default function Requests({ me }: { me: User }) {
     onError,
   });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <>
         <Toolbar title="Requests" />
@@ -93,11 +100,22 @@ export default function Requests({ me }: { me: User }) {
       </>
     );
   }
+  if (!data) {
+    return <><Toolbar title="Requests" /><LoadError error={loadError} onRetry={() => refetch()} /></>;
+  }
 
-  const pendingCount = data.filter((r) => r.status === "pending").length;
+  const pendingCount = data.filter((r) => r.status === "pending" || r.status === "failed").length;
   const rows = me.is_admin && view === "pending"
     ? data.filter((r) => r.status === "pending" || r.status === "failed")
     : data;
+  const filteredRows = rows.filter((r) => {
+    const needle = search.trim().toLowerCase();
+    if (needle && !`${r.title} ${r.english_title}`.toLowerCase().includes(needle)) return false;
+    if (me.is_admin && requester.trim() && !r.username.toLowerCase().includes(requester.trim().toLowerCase())) return false;
+    if (mediaFilter !== "all" && r.media_type !== mediaFilter) return false;
+    if (view === "all" && statusFilter !== "all" && r.status !== statusFilter) return false;
+    return true;
+  });
 
   return (
     <>
@@ -118,13 +136,47 @@ export default function Requests({ me }: { me: User }) {
             </button>
           </div>
         )}
+        <div className="request-filters">
+          <input
+            aria-label="Search request titles"
+            placeholder="Search titles…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {me.is_admin && (
+            <input
+              aria-label="Filter by requester"
+              placeholder="Requested by…"
+              value={requester}
+              onChange={(e) => setRequester(e.target.value)}
+            />
+          )}
+          <select aria-label="Filter by media type" value={mediaFilter} onChange={(e) => setMediaFilter(e.target.value as "all" | MediaType)}>
+            <option value="all">All types</option>
+            <option value="manga">Manga</option>
+            <option value="comic">Comics</option>
+          </select>
+          {view === "all" && (
+            <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "all" | RequestStatus)}>
+              <option value="all">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+              <option value="processing">Processing</option>
+              <option value="partially_available">Partially available</option>
+              <option value="available">Available</option>
+              <option value="denied">Denied</option>
+            </select>
+          )}
+        </div>
         {actionError && (
           <div className="error-banner" style={{ marginBottom: 12 }}>
             {actionError}
           </div>
         )}
-        {rows.length === 0 ? (
-          me.is_admin && view === "pending" ? (
+        {filteredRows.length === 0 ? (
+          rows.length > 0 ? (
+            <EmptyState icon={<InboxIcon size={40} />} title="No matching requests" hint="Try changing the search or filters." />
+          ) : me.is_admin && view === "pending" ? (
             <EmptyState
               icon={<CheckIcon size={40} />}
               title="Nothing waiting for approval"
@@ -152,7 +204,7 @@ export default function Requests({ me }: { me: User }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {filteredRows.map((r) => (
                   <tr key={r.id}>
                     <td className="cell-cover">
                       {r.cover_url ? (
@@ -162,12 +214,12 @@ export default function Requests({ me }: { me: User }) {
                       )}
                     </td>
                     <td className="cell-rqtitle">
-                      <div style={{ fontWeight: 500 }}>
+                      <Link className="request-title-link" to={titleHref(r)}>
                         {r.english_title || r.title}
                         {r.year ? (
                           <span style={{ color: "var(--text-faint)", fontWeight: 400 }}> ({r.year})</span>
                         ) : null}
-                      </div>
+                      </Link>
                       {r.note && (
                         <div style={{ color: "var(--text-faint)", fontSize: 12 }}>{r.note}</div>
                       )}
@@ -200,7 +252,7 @@ export default function Requests({ me }: { me: User }) {
                             )}
                           </>
                         )}
-                        {(r.status === "processing" || r.status === "partially_available") && (
+                        {(r.status === "processing" || r.status === "partially_available" || r.status === "available") && (
                           <button
                             className="btn icon-btn"
                             title="Refresh status"

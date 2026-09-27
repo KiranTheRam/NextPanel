@@ -7,7 +7,7 @@ import type {
   RootFolder,
   Settings as SettingsType,
 } from "../api/types";
-import { Spinner, Toggle, Toolbar } from "../components/common";
+import { LoadError, Spinner, Toggle, Toolbar } from "../components/common";
 
 function AppConnection({
   app,
@@ -116,7 +116,7 @@ function randomSecret(): string {
 
 export default function Settings() {
   const queryClient = useQueryClient();
-  const { data: saved, isLoading } = useQuery({
+  const { data: saved, isLoading, error: loadError, refetch } = useQuery({
     queryKey: ["settings"],
     queryFn: () => api.get<SettingsType>("/settings"),
   });
@@ -139,13 +139,16 @@ export default function Settings() {
     },
   });
 
-  if (isLoading || !saved) {
+  if (isLoading) {
     return (
       <>
         <Toolbar title="Settings" />
         <Spinner />
       </>
     );
+  }
+  if (!saved) {
+    return <><Toolbar title="Settings" /><LoadError error={loadError} onRetry={() => refetch()} /></>;
   }
 
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>

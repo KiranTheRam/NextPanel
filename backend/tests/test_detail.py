@@ -116,6 +116,20 @@ async def test_comic_detail_falls_back_to_metadata_search(client, configured):
 
 
 @respx.mock
+async def test_detail_falls_back_to_saved_request_during_app_outage(client, configured):
+    from .test_requests import make_request
+
+    request = await make_request(client, provider_id=42, description="Saved overview", year=2026)
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(502))
+    respx.get("http://mangarr.test/api/v1/search/metadata").mock(return_value=Response(502))
+
+    response = await client.get("/api/v1/detail/manga/mangaupdates/42?title=One%20Piece")
+    assert response.status_code == 200
+    assert response.json()["description"] == "Saved overview"
+    assert response.json()["request_id"] == request["id"]
+
+
+@respx.mock
 async def test_detail_404_when_nothing_found(client, configured):
     respx.post("https://graphql.anilist.co").mock(
         return_value=Response(200, json={"data": {"Media": None}})

@@ -34,7 +34,7 @@ via webhooks from both apps (with scheduled polling as a fallback).
   ComicVine via pullarr's key: New Comics This Week and New Comic Series This
   Month (ComicVine has no popularity data, so comic discovery is recency-based
   — issues by store date, `#1`s marking new series). Anything already in a
-  library (matched by provider id or title) or already requested stays visible
+  library (matched by provider id or matching title and year) or already requested stays visible
   with its current state, and every other card is one tap to request. The
   independent provider and library reads run concurrently; AniList results
   are cached for 30 minutes and ComicVine results for 6 hours inside pullarr

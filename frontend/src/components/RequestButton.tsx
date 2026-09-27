@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { invalidateRequestViews } from "../api/cache";
 import { api } from "../api/client";
 import type { MediaType, RequestStatus } from "../api/types";
 import { StatusPill } from "./common";
@@ -38,17 +39,15 @@ export default function RequestButton({
     mutationFn: () => api.post("/requests", payload),
     onSuccess: () => {
       onRequested?.();
-      queryClient.invalidateQueries({ queryKey: ["requests"] });
-      queryClient.invalidateQueries({ queryKey: ["discover"] });
-      queryClient.invalidateQueries({ queryKey: ["search"] });
-      queryClient.invalidateQueries({ queryKey: ["detail"] });
+      invalidateRequestViews(queryClient);
     },
   });
 
   if (inLibrary) return <span className="pill green">In Library</span>;
-  if (requestStatus) return <StatusPill status={requestStatus} />;
+  if (requestStatus && requestStatus !== "denied") return <StatusPill status={requestStatus} />;
   return (
     <>
+      {requestStatus === "denied" && <StatusPill status="denied" />}
       <button
         className={`btn primary${size === "sm" ? " sm" : ""}`}
         disabled={request.isPending}
@@ -59,7 +58,7 @@ export default function RequestButton({
           request.mutate();
         }}
       >
-        {request.isPending ? "Requesting…" : "Request"}
+        {request.isPending ? "Requesting…" : requestStatus === "denied" ? "Request Again" : "Request"}
       </button>
       {request.isError && (
         <span className="request-error">{(request.error as Error).message}</span>

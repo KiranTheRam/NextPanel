@@ -57,6 +57,22 @@ async def test_webhook_advances_status(client, configured):
     listing = (await client.get("/api/v1/requests")).json()
     assert listing[0]["status"] == "available"
 
+    # Ongoing series can gain new chapters after being fully downloaded.
+    respx.get("http://mangarr.test/api/v1/series/77").mock(
+        return_value=Response(200, json={
+            "id": 77, "title": "One Piece",
+            "chapter_count": 101, "downloaded_count": 100,
+        })
+    )
+    await client.post(
+        "/api/v1/webhooks/mangarr",
+        json={"event": "import", "series_id": 77},
+        headers={"X-Webhook-Secret": "hook-secret"},
+    )
+    listing = (await client.get("/api/v1/requests")).json()
+    assert listing[0]["status"] == "partially_available"
+    assert listing[0]["total_count"] == 101
+
 
 @respx.mock
 async def test_webhook_auth(client, configured):
@@ -97,6 +113,16 @@ async def test_poll_job_updates_requests(client, configured):
     listing = (await client.get("/api/v1/requests")).json()
     row = next(r for r in listing if r["id"] == request_id)
     assert row["status"] == "available"
+
+    respx.get("http://mangarr.test/api/v1/series/77").mock(
+        return_value=Response(200, json={
+            "id": 77, "title": "One Piece",
+            "chapter_count": 101, "downloaded_count": 100,
+        })
+    )
+    await poll_active_requests()
+    listing = (await client.get("/api/v1/requests")).json()
+    assert listing[0]["status"] == "partially_available"
 
 
 @respx.mock

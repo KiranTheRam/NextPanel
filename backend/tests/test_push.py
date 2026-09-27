@@ -41,6 +41,38 @@ async def test_subscribe_and_replace(client, admin):
     assert rows == []
 
 
+async def test_logout_removes_only_this_devices_push_subscription(client, admin):
+    assert (await client.post("/api/v1/push/subscribe", json=SUB)).status_code == 204
+    other_subscription = {
+        **SUB,
+        "endpoint": "https://push.example/send/other-device",
+    }
+    from nextpanel.main import app
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as other:
+        assert (await other.post("/api/v1/auth/login", json={
+            "username": "admin", "password": "hunter22"
+        })).status_code == 200
+        assert (await other.post("/api/v1/push/subscribe", json=other_subscription)).status_code == 204
+        assert (await client.post("/api/v1/auth/logout", json={
+            "push_endpoint": SUB["endpoint"]
+        })).status_code == 204
+        assert (await other.get("/api/v1/auth/me")).status_code == 200
+    async with session_scope() as session:
+        rows = (await session.execute(select(PushSubscription))).scalars().all()
+    assert [row.endpoint for row in rows] == [other_subscription["endpoint"]]
+
+
+async def test_logout_cookie_removes_subscription_when_endpoint_unavailable(client, admin):
+    assert (await client.post("/api/v1/push/subscribe", json=SUB)).status_code == 204
+    assert (await client.post("/api/v1/auth/logout")).status_code == 204
+    async with session_scope() as session:
+        rows = (await session.execute(select(PushSubscription))).scalars().all()
+    assert rows == []
+
+
 async def test_existing_device_subscription_moves_to_current_user(client, admin):
     assert (await client.post("/api/v1/push/subscribe", json=SUB)).status_code == 204
 

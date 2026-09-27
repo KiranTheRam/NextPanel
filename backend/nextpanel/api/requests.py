@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from .. import push, settings_service
 from ..arr import ArrConflict, ArrError, client_for
 from ..db import get_session
-from ..models import MediaType, Request, RequestStatus, User
+from ..models import MediaType, Request, RequestStatus, User, utcnow
 from ..schemas import ApproveIn, DenyIn, RequestCreateIn, RequestOut
 from ..security import safe_cover_url
 from ..status import refresh_request
@@ -95,6 +95,7 @@ async def create_request(
             existing.status = RequestStatus.PENDING
             existing.note = ""
             existing.decided_by_id = None
+            existing.created_at = utcnow()
             await session.commit()
             push.notify_later(push.notify_admins_new_request(user.username, existing.title))
             return _out(await _load(session, existing.id))

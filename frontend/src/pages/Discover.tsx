@@ -2,19 +2,11 @@ import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import { titleHref } from "../api/paths";
 import type { DiscoverItem, DiscoverResponse, SearchResponse, SearchResult } from "../api/types";
 import { EmptyState, MediaBadge, Spinner, Toolbar } from "../components/common";
 import { SearchIcon } from "../components/icons";
 import RequestButton from "../components/RequestButton";
-
-export function titleHref(
-  item: { media_type: string; provider: string; provider_id: number; title: string },
-): string {
-  // the title hint lets providers without a by-id lookup (MangaUpdates,
-  // ComicVine) resolve the detail page from a cold URL
-  return `/title/${item.media_type}/${item.provider}/${item.provider_id}` +
-    `?title=${encodeURIComponent(item.title)}`;
-}
 
 function DiscoverCard({ item }: { item: DiscoverItem }) {
   const displayTitle = item.english_title || item.title;
@@ -28,7 +20,7 @@ function DiscoverCard({ item }: { item: DiscoverItem }) {
         )}
         {item.in_library && <span className="poster-flag green">In Library</span>}
         {!item.in_library && item.request_status && (
-          <span className="poster-flag orange">Requested</span>
+          <span className="poster-flag orange">{item.request_status === "denied" ? "Denied" : "Requested"}</span>
         )}
       </div>
       <div className="discover-card-title" title={displayTitle}>
@@ -89,22 +81,30 @@ function Recommendations() {
   const hasErrors = queries.some(
     (query) => query.isError || Object.keys(query.data?.errors ?? {}).length > 0,
   );
+  const retrySections = () => queries.forEach((query) => { void query.refetch(); });
 
   if (sections.length === 0 && pendingCount > 0) return <Spinner />;
   if (sections.length === 0) {
     return (
-      <EmptyState
-        icon={<SearchIcon size={40} />}
-        title="Search for something to request"
-        hint="Manga and manhwa recommendations come from AniList; comics come from ComicVine."
-      />
+      <>
+        {hasErrors && (
+          <div className="error-banner" role="alert">
+            Recommendations could not be loaded. <button className="btn" onClick={retrySections}>Retry</button>
+          </div>
+        )}
+        <EmptyState
+          icon={<SearchIcon size={40} />}
+          title="Search for something to request"
+          hint="Manga and manhwa recommendations come from AniList; comics come from ComicVine."
+        />
+      </>
     );
   }
   return (
     <>
       {hasErrors && (
         <div className="error-banner" style={{ marginBottom: 12 }}>
-          Some recommendation rows could not be loaded.
+          Some recommendation rows could not be loaded. <button className="btn" onClick={retrySections}>Retry</button>
         </div>
       )}
       {sections.map((section) => (
@@ -188,7 +188,7 @@ export default function Discover() {
   // follow the URL when it changes underneath us (back/forward navigation)
   useEffect(() => setInput(query), [query]);
 
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["search", query, mediaType],
     queryFn: () =>
       api.get<SearchResponse>(
@@ -230,7 +230,7 @@ export default function Discover() {
                 type="button"
                 key={t}
                 className={mediaType === t ? "active" : ""}
-                onClick={() => submitSearch({ type: t })}
+                onClick={() => submitSearch({ q: input, type: t })}
               >
                 {t === "all" ? "All" : t === "manga" ? "Manga" : "Comics"}
               </button>
@@ -247,12 +247,19 @@ export default function Discover() {
           </div>
         ))}
 
+        {isError && query && (
+          <div className="error-banner" role="alert">
+            Search failed: {(error as Error).message}{" "}
+            <button className="btn" type="button" onClick={() => refetch()}>Retry</button>
+          </div>
+        )}
+
         {isFetching && <Spinner />}
-        {!isFetching && query && data && data.results.length === 0 && (
+        {!isFetching && !isError && query && data && data.results.length === 0 && (
           <EmptyState icon={<SearchIcon size={40} />} title="No results" hint="Try another title or spelling." />
         )}
         {!query && <Recommendations />}
-        {!isFetching && data && data.results.length > 0 && (
+        {!isFetching && !isError && query && data && data.results.length > 0 && (
           <div className="results-grid">
             {data.results.map((r) => (
               <ResultCard key={`${r.media_type}-${r.provider_id}`} result={r} />

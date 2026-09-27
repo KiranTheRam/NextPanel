@@ -49,6 +49,10 @@ class PasswordChangeIn(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class LogoutIn(BaseModel):
+    push_endpoint: str = Field(default="", max_length=2048)
+
+
 # ------------------------------------------------------------------ search
 
 class SearchResultOut(BaseModel):

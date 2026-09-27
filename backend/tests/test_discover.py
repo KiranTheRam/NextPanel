@@ -211,12 +211,13 @@ async def test_discover_marks_requested_and_library_titles(client, configured):
         "provider_id": 101, "title": "Dandadan",
     })
     assert r.status_code == 409  # sanity: dedupe by provider works
-    await make_request(client, provider_id=999, media_type="manga")  # "One Piece"
+    await make_request(client, provider_id=999, media_type="manga", year=2026)  # "One Piece"
 
     respx.get("http://mangarr.test/api/v1/series").mock(
         return_value=Response(200, json=[{
             "id": 9, "anilist_id": None, "mangaupdates_id": 555,
             "title": "Berserker", "english_title": "", "alt_titles": "Berserk\nベルセルク",
+            "year": 2026,
         }])
     )
     data = (await client.get("/api/v1/discover")).json()
@@ -246,7 +247,7 @@ async def test_discover_matches_library_by_anilist_synonym(client, configured):
     respx.get("http://mangarr.test/api/v1/series").mock(
         return_value=Response(200, json=[{
             "id": 3, "anilist_id": None, "mangaupdates_id": 8517620677,
-            "title": "Blue Box", "english_title": "", "alt_titles": "",
+            "title": "Blue Box", "english_title": "", "alt_titles": "", "year": 2026,
         }])
     )
     data = (await client.get("/api/v1/discover")).json()

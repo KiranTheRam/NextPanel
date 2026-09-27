@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { AuthStatus, User } from "../api/types";
-import { Modal, Spinner, Toggle, Toolbar } from "../components/common";
+import { LoadError, Modal, Spinner, Toggle, Toolbar } from "../components/common";
 import { KeyIcon, PlusIcon, XIcon } from "../components/icons";
 import {
   ChangePasswordModal,
@@ -55,7 +55,7 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
 
 export default function Users({ me }: { me: User }) {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError, refetch } = useQuery({
     queryKey: ["users"],
     queryFn: () => api.get<User[]>("/users"),
   });
@@ -65,6 +65,7 @@ export default function Users({ me }: { me: User }) {
   });
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState<User | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const invalidate = () => {
@@ -81,17 +82,20 @@ export default function Users({ me }: { me: User }) {
   });
   const remove = useMutation({
     mutationFn: (id: number) => api.del(`/users/${id}`),
-    onSuccess: invalidate,
+    onSuccess: () => { invalidate(); setDeleting(null); },
     onError,
   });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <>
         <Toolbar title="Users" />
         <Spinner />
       </>
     );
+  }
+  if (!data) {
+    return <><Toolbar title="Users" /><LoadError error={loadError} onRetry={() => refetch()} /></>;
   }
 
   return (
@@ -134,6 +138,7 @@ export default function Users({ me }: { me: User }) {
                 <td>
                   <Toggle
                     on={u.is_admin}
+                    disabled={u.id === me.id || setAdmin.isPending}
                     onChange={(v) =>
                       u.id !== me.id && setAdmin.mutate({ id: u.id, isAdmin: v })
                     }
@@ -158,7 +163,7 @@ export default function Users({ me }: { me: User }) {
                       className="btn icon-btn"
                       title="Delete user"
                       aria-label="Delete user"
-                      onClick={() => remove.mutate(u.id)}
+                      onClick={() => { remove.reset(); setDeleting(u); }}
                     >
                       <XIcon size={14} />
                     </button>
@@ -180,6 +185,18 @@ export default function Users({ me }: { me: User }) {
           username={resetting.username}
           onClose={() => setResetting(null)}
         />
+      )}
+      {deleting && (
+        <Modal title={`Delete ${deleting.username}?`} onClose={() => { if (!remove.isPending) setDeleting(null); }}>
+          <p>This permanently deletes this account and its {deleting.request_count} request{deleting.request_count === 1 ? "" : "s"} from NextPanel. Series already added to Mangarr or Pullarr remain there.</p>
+          {remove.isError && <div className="error-banner" role="alert" style={{ marginTop: 12 }}>{(remove.error as Error).message}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+            <button className="btn" onClick={() => setDeleting(null)} disabled={remove.isPending}>Cancel</button>
+            <button className="btn danger" onClick={() => remove.mutate(deleting.id)} disabled={remove.isPending}>
+              {remove.isPending ? "Deleting…" : "Delete user and requests"}
+            </button>
+          </div>
+        </Modal>
       )}
     </>
   );

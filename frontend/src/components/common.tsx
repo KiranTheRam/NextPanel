@@ -27,6 +27,17 @@ export function Spinner() {
   );
 }
 
+export function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  return (
+    <div className="content">
+      <div className="error-banner" role="alert">
+        Could not load this page: {error instanceof Error ? error.message : "Unknown error"}
+      </div>
+      <button className="btn" onClick={onRetry}>Retry</button>
+    </div>
+  );
+}
+
 export function EmptyState({ icon, title, hint }: { icon: ReactNode; title: string; hint?: string }) {
   return (
     <div className="empty-state">

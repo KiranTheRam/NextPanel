@@ -39,22 +39,32 @@ class RequestIndex:
 
     def __init__(self, requests: list[Request]):
         self.by_provider_id: dict[tuple[str, str, int], Request] = {}
-        self.by_title: dict[tuple[str, str], Request] = {}
+        self.by_title: dict[tuple[str, str], list[Request]] = {}
         for request in requests:
             key = (request.media_type.value, request.provider, request.provider_id)
             self.by_provider_id[key] = request
-            for title in (request.title, request.english_title):
-                if title and (n := normalize_title(title)):
-                    self.by_title.setdefault((request.media_type.value, n), request)
+            for n in {normalize_title(t) for t in (request.title, request.english_title) if t}:
+                if n:
+                    self.by_title.setdefault((request.media_type.value, n), []).append(request)
 
     def find(self, media_type: str, provider: str, provider_id: int,
-             titles: list[str]) -> Request | None:
+             titles: list[str], year: int | None = None) -> Request | None:
         request = self.by_provider_id.get((media_type, provider, provider_id))
         if request is not None:
             return request
+        if year is None or media_type == MediaType.COMIC.value:
+            return None
         for title in titles:
-            if title and (request := self.by_title.get((media_type, normalize_title(title)))):
-                return request
+            if not title:
+                continue
+            candidates = [
+                candidate
+                for candidate in self.by_title.get((media_type, normalize_title(title)), [])
+                if candidate.provider != provider
+                and candidate.year == year
+            ]
+            if len(candidates) == 1:
+                return candidates[0]
         return None
 
 
@@ -67,10 +77,12 @@ def _annotate(item: dict, titles: list[str], library: LibraryIndex,
               requests: RequestIndex) -> dict:
     """Tag an item with what NextPanel already knows about it, so the UI can
     show "In Library"/status instead of a Request button."""
-    series = library.find(item["provider"], item["provider_id"], titles)
+    series = library.find(item["provider"], item["provider_id"], titles, item.get("year"))
     item["in_library"] = series is not None
     item["library_series_id"] = int(series["id"]) if series else None
-    request = requests.find(item["media_type"], item["provider"], item["provider_id"], titles)
+    request = requests.find(
+        item["media_type"], item["provider"], item["provider_id"], titles, item.get("year")
+    )
     item["request_id"] = request.id if request else None
     item["request_status"] = request.status.value if request else None
     return item

@@ -22,8 +22,8 @@ export default function App() {
 
   useEffect(() => {
     if (!me || !pushSupported()) return;
-    // Push endpoints survive logout, so make sure an existing endpoint follows
-    // the authenticated user after an account or SSO identity change.
+    // The browser subscription survives logout; rebind it to the newly
+    // authenticated user after an account or SSO identity change.
     syncPushSubscription().catch(() => {
       // Delivery failures remain visible through the notification control;
       // they should not prevent the application from loading.

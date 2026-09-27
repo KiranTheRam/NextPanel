@@ -48,6 +48,15 @@ export function UsersIcon({ size }: { size?: number }) {
   );
 }
 
+export function UserIcon({ size }: { size?: number }) {
+  return (
+    <Icon size={size}>
+      <circle cx="12" cy="7" r="4" />
+      <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+    </Icon>
+  );
+}
+
 export function SettingsIcon({ size }: { size?: number }) {
   return (
     <Icon size={size}>

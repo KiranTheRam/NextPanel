@@ -2,13 +2,18 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
 import { api, appVersion } from "../api/client";
+import { pushEndpointForLogout } from "../api/push";
 import type { AuthStatus, MediaRequest, User } from "../api/types";
-import { InboxIcon, KeyIcon, LogOutIcon, SearchIcon, SettingsIcon, UsersIcon } from "./icons";
+import { InboxIcon, KeyIcon, LogOutIcon, SearchIcon, SettingsIcon, UserIcon, UsersIcon } from "./icons";
 import { ChangePasswordModal } from "./password";
+import { Modal } from "./common";
 
 export default function Sidebar({ me }: { me: User }) {
   const queryClient = useQueryClient();
   const [changingPassword, setChangingPassword] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
   const { data: authStatus } = useQuery({
     queryKey: ["authStatus"],
     queryFn: () => api.get<AuthStatus>("/auth/status"),
@@ -19,7 +24,7 @@ export default function Sidebar({ me }: { me: User }) {
     queryFn: () => api.get<MediaRequest[]>("/requests?scope=all"),
     enabled: me.is_admin,
     refetchInterval: 15000,
-    select: (rows) => rows.filter((r) => r.status === "pending").length,
+    select: (rows) => rows.filter((r) => r.status === "pending" || r.status === "failed").length,
   });
 
   const items = [
@@ -34,9 +39,17 @@ export default function Sidebar({ me }: { me: User }) {
   ];
 
   const logout = async () => {
-    await api.post("/auth/logout");
-    queryClient.clear();
-    window.location.href = authStatus?.sso_enabled ? "/cdn-cgi/access/logout" : "/";
+    setSigningOut(true);
+    setSignOutError("");
+    try {
+      const pushEndpoint = await pushEndpointForLogout().catch(() => "");
+      await api.post("/auth/logout", { push_endpoint: pushEndpoint });
+      queryClient.clear();
+      window.location.href = authStatus?.sso_enabled ? "/cdn-cgi/access/logout" : "/";
+    } catch (error) {
+      setSignOutError((error as Error).message);
+      setSigningOut(false);
+    }
   };
 
   return (
@@ -60,6 +73,10 @@ export default function Sidebar({ me }: { me: User }) {
             )}
           </NavLink>
         ))}
+        <button className="nav-item mobile-account" onClick={() => setAccountOpen(true)}>
+          <span className="icon"><UserIcon /></span>
+          <span className="nav-label">Account</span>
+        </button>
       </nav>
       <div className="sidebar-footer">
         <div style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
@@ -67,7 +84,7 @@ export default function Sidebar({ me }: { me: User }) {
             {me.username}
             {me.is_admin && <span style={{ color: "var(--text-faint)" }}> · admin</span>}
           </span>
-          {authStatus?.local_login_enabled && (
+          {authStatus?.local_login_enabled && !me.sso_only && (
             <button
               onClick={() => setChangingPassword(true)}
               title="Change password"
@@ -79,6 +96,7 @@ export default function Sidebar({ me }: { me: User }) {
           )}
           <button
             onClick={logout}
+            disabled={signingOut}
             title="Sign out"
             aria-label="Sign out"
             style={{ color: "var(--accent-hover)", display: "inline-flex" }}
@@ -86,8 +104,25 @@ export default function Sidebar({ me }: { me: User }) {
             <LogOutIcon size={15} />
           </button>
         </div>
+        {signOutError && <div role="alert" style={{ color: "var(--danger)" }}>{signOutError}</div>}
         v{appVersion()}
       </div>
+      {accountOpen && (
+        <Modal title="Account" onClose={() => setAccountOpen(false)}>
+          <p style={{ marginBottom: 16 }}>{me.username}{me.is_admin ? " · admin" : ""}</p>
+          {signOutError && <div className="error-banner" role="alert">{signOutError}</div>}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {authStatus?.local_login_enabled && !me.sso_only && (
+              <button className="btn" onClick={() => { setAccountOpen(false); setChangingPassword(true); }}>
+                <KeyIcon size={15} /> Change password
+              </button>
+            )}
+            <button className="btn" onClick={logout} disabled={signingOut}>
+              <LogOutIcon size={15} /> {signingOut ? "Signing out…" : "Sign out"}
+            </button>
+          </div>
+        </Modal>
+      )}
       {changingPassword && <ChangePasswordModal onClose={() => setChangingPassword(false)} />}
     </div>
   );

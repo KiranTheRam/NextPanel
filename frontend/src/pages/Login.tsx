@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { AuthStatus } from "../api/types";
-import { Spinner } from "../components/common";
+import { LoadError, Spinner } from "../components/common";
 
 type Mode = "login" | "register" | "setup";
 
 export default function Login() {
   const queryClient = useQueryClient();
-  const { data: status } = useQuery({
+  const { data: status, isPending: statusPending, error: statusError, refetch: retryStatus } = useQuery({
     queryKey: ["authStatus"],
     queryFn: () => api.get<AuthStatus>("/auth/status"),
   });
@@ -39,7 +39,7 @@ export default function Login() {
   if (!status) {
     return (
       <div className="login-wrap">
-        <Spinner />
+        {statusPending ? <Spinner /> : <LoadError error={statusError} onRetry={() => retryStatus()} />}
       </div>
     );
   }

@@ -22,12 +22,18 @@ export async function currentSubscription(): Promise<PushSubscription | null> {
   return registration.pushManager.getSubscription();
 }
 
+export async function pushEndpointForLogout(): Promise<string> {
+  if (!pushSupported()) return "";
+  // getRegistration resolves even when service-worker startup failed; waiting
+  // for `ready` here could leave Sign out waiting forever.
+  const registration = await navigator.serviceWorker.getRegistration();
+  return (await registration?.pushManager.getSubscription())?.endpoint ?? "";
+}
+
 /** Re-register an existing browser subscription for the signed-in user.
  *
- * Push subscriptions live in the browser longer than login sessions. When a
- * user changes accounts (including moving from a local account to SSO), the
- * endpoint therefore needs to be associated with the current server-side
- * user again even though the browser still reports notifications as enabled.
+ * Browser subscriptions live longer than login sessions. Logout removes their
+ * server-side association; a later login binds the endpoint to the new user.
  */
 export async function syncPushSubscription(): Promise<PushSubscription | null> {
   const subscription = await currentSubscription();

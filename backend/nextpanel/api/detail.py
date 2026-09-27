@@ -16,7 +16,7 @@ from ..arr import ArrClient, ArrError, MangarrClient, PullarrClient
 from ..db import get_session
 from ..discover import fetch_media
 from ..library import load_index
-from ..models import MediaType
+from ..models import MediaType, Request
 from ..schemas import ChapterOut, TitleDetailOut
 from ..security import safe_cover_url
 from .deps import get_current_user
@@ -126,6 +126,22 @@ def _from_anilist(media: dict) -> TitleDetailOut:
     )
 
 
+def _from_request(request: Request) -> TitleDetailOut:
+    """Stored request metadata keeps its detail link useful during outages."""
+    return TitleDetailOut(
+        media_type=request.media_type,
+        provider=request.provider,
+        provider_id=request.provider_id,
+        title=request.title,
+        english_title=request.english_title,
+        description=request.description,
+        year=request.year,
+        cover_url=safe_cover_url(request.cover_url),
+        total_count=request.total_count or None,
+        downloaded_count=request.downloaded_count,
+    )
+
+
 @router.get("/{media_type}/{provider}/{provider_id}", response_model=TitleDetailOut)
 async def title_detail(
     media_type: MediaType,
@@ -157,7 +173,7 @@ async def title_detail(
             titles = [t for t in [media["title"], media["english_title"], *media["synonyms"]] if t]
 
     library = await load_index(client)
-    series = library.find(provider, provider_id, titles)
+    series = library.find(provider, provider_id, titles, detail.year if detail else None)
     if series is not None:
         try:
             full = await client.series_detail(int(series["id"]))
@@ -183,13 +199,19 @@ async def title_detail(
 
     if detail is None:
         detail = await _from_metadata_search(client, provider_id, title)
+    requests = await load_request_index(session)
+    if detail is None:
+        saved = requests.find(media_type.value, provider, provider_id, titles)
+        if saved is not None:
+            detail = _from_request(saved)
     if detail is None:
         raise HTTPException(404, "No metadata found for this title")
 
     detail.provider = detail.provider or provider
     detail.provider_id = detail.provider_id or provider_id
-    requests = await load_request_index(session)
-    request = requests.find(media_type.value, provider, provider_id, titles or [detail.title])
+    request = requests.find(
+        media_type.value, provider, provider_id, titles or [detail.title], detail.year
+    )
     if request is not None:
         detail.request_id = request.id
         detail.request_status = request.status
