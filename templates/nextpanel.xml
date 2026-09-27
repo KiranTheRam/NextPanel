@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Container version="2">
+  <Name>NextPanel</Name>
+  <Repository>kirantheram/nextpanel:latest</Repository>
+  <Registry>https://hub.docker.com/r/kirantheram/nextpanel</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/KiranTheRam/NextPanel/issues</Support>
+  <Project>https://github.com/KiranTheRam/NextPanel</Project>
+  <ReadMe>https://raw.githubusercontent.com/KiranTheRam/NextPanel/main/README.md</ReadMe>
+  <Overview>Let users request manga and comics, approve them in one place, and send approved titles to Mangarr or Pullarr.</Overview>
+  <Description>NextPanel provides a shared request and approval interface for Mangarr and Pullarr. It searches both libraries, forwards approved titles to the appropriate app, and tracks availability. Create the first admin account after installation, then connect Mangarr and Pullarr in Settings. The default template supports direct access over local HTTP; use HTTPS for remote access and set the secure session cookie option to true.</Description>
+  <Category>MediaApp:Books</Category>
+  <WebUI>http://[IP]:[PORT:6995]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/KiranTheRam/NextPanel/main/templates/nextpanel.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/KiranTheRam/NextPanel/main/frontend/public/nextpanel-icon-192.png</Icon>
+  <License>GPLv3</License>
+  <Config Name="WebUI Port" Target="6995" Default="6995" Mode="tcp" Description="NextPanel web interface port." Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="Appdata" Target="/config" Default="/mnt/user/appdata/nextpanel" Mode="rw" Description="Persistent database, sessions, and settings." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Secure Session Cookie" Target="NEXTPANEL_SESSION_COOKIE_SECURE" Default="false" Description="False for direct local HTTP access. Set true when NextPanel is served over HTTPS, especially for remote access." Type="Variable" Display="always" Required="true" Mask="false"/>
+</Container>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CommunityApplications>
+  <Profile>NextPanel is a request manager for manga and western comics. Users request titles, administrators approve them, and NextPanel sends approved requests to Mangarr or Pullarr. For installation help and bug reports, use the project's GitHub issues.</Profile>
+  <Icon>https://raw.githubusercontent.com/KiranTheRam/NextPanel/main/frontend/public/nextpanel-icon-192.png</Icon>
+  <WebPage>https://github.com/KiranTheRam/NextPanel</WebPage>
+</CommunityApplications>
