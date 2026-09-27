@@ -56,7 +56,6 @@ export interface MediaRequest {
   english_title: string;
   year: number | null;
   cover_url: string;
-  description: string;
   status: RequestStatus;
   note: string;
   remote_series_id: number | null;
@@ -66,6 +65,10 @@ export interface MediaRequest {
   updated_at: string;
   username: string;
   decided_by_username: string;
+}
+
+export interface RequestSummary {
+  needs_approval: number;
 }
 
 export type Settings = Record<string, string>;

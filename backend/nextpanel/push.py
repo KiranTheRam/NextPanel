@@ -103,9 +103,16 @@ async def admin_user_ids() -> list[int]:
         return [row[0] for row in result.all()]
 
 
+# The event loop only keeps weak references to tasks, so an unreferenced send
+# can be garbage-collected before it finishes. Hold each one until it is done.
+_pending_sends: set[asyncio.Task] = set()
+
+
 def notify_later(coro) -> None:
     """Schedule a push send without blocking the request handler."""
     task = asyncio.get_running_loop().create_task(coro)
+    _pending_sends.add(task)
+    task.add_done_callback(_pending_sends.discard)
     task.add_done_callback(_log_push_errors)
 
 

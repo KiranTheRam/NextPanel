@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from . import __version__, discover as discover_service, scheduler
+from . import __version__, discover as discover_service, http_client, scheduler
 from .api import auth, detail, discover, push, requests, search, settings, users, webhooks
 from .config import config
 from .db import init_db
@@ -32,9 +34,14 @@ async def lifespan(app: FastAPI):
         discover_warmup.cancel()
         await asyncio.gather(discover_warmup, return_exceptions=True)
         scheduler.shutdown()
+        await http_client.aclose()
 
 
 app = FastAPI(title="NextPanel", version=__version__, lifespan=lifespan)
+# Cloudflare compresses at its edge already; this covers LAN access and the
+# tunnel hop. Added before the header middleware below so it sits inside it
+# and sees each response whole, which is what lets it skip small ones.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # NextPanel is built to sit behind a public reverse proxy (e.g. a Cloudflare
 # tunnel); browsers get defense-in-depth headers on every response. The CSP
@@ -90,12 +97,25 @@ async def initialize():
     return {"version": __version__, "urlBase": ""}
 
 
+class FingerprintedStaticFiles(StaticFiles):
+    """Vite puts a content hash in every /assets file name, so the bytes at
+    a given URL never change and browsers need not revalidate them."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
+# The page and the service worker are not fingerprinted: always revalidate
+# them so a new release is picked up on the next load.
+_REVALIDATE = {"Cache-Control": "no-cache"}
+
 # Serve the built frontend if present (production/Docker)
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 if STATIC_DIR.is_dir():
-    from fastapi.staticfiles import StaticFiles
-
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+    app.mount("/assets", FingerprintedStaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
     @app.get("/{full_path:path}")
     async def spa(full_path: str):
@@ -104,8 +124,10 @@ if STATIC_DIR.is_dir():
             # so "..%2f" sequences would otherwise escape the static dir
             candidate = (STATIC_DIR / full_path).resolve()
             if candidate.is_relative_to(STATIC_DIR) and candidate.is_file():
+                if candidate.name in ("index.html", "sw.js"):
+                    return FileResponse(candidate, headers=_REVALIDATE)
                 return FileResponse(candidate)
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(STATIC_DIR / "index.html", headers=_REVALIDATE)
 else:
 
     @app.get("/")

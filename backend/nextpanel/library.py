@@ -135,12 +135,14 @@ async def _refresh_index(
                 _index_inflight.pop(key, None)
 
 
-async def load_index_cached(client: ArrClient) -> LibraryIndex:
-    """Return a coalesced, briefly cached library index for discovery.
+async def load_index_cached(client: ArrClient, *, allow_stale: bool = True) -> LibraryIndex:
+    """Return a coalesced, briefly cached library index.
 
-    Fresh snapshots are returned directly. Expired snapshots are returned
-    immediately while one background refresh runs. Only the very first read
-    waits for the target app.
+    Fresh snapshots are returned directly. With `allow_stale`, an expired
+    snapshot is returned immediately while one background refresh runs, so
+    only the very first read waits for the target app. Without it (the title
+    page, which must not miss a series added since), an expired snapshot
+    waits for the shared refresh instead.
     """
     if not client.configured:
         return LibraryIndex(available=False)
@@ -156,11 +158,16 @@ async def load_index_cached(client: ArrClient) -> LibraryIndex:
             task = asyncio.create_task(_refresh_index(key, client))
             _index_inflight[key] = task
 
-        if cached:
+        if cached and allow_stale:
             return cached[1]
 
     # Do not let one disconnected browser cancel the shared cold-cache load.
     return await asyncio.shield(task)
+
+
+def invalidate_index(client: ArrClient) -> None:
+    """Forget the snapshot after changing the library (e.g. adding a series)."""
+    _index_cache.pop(_index_cache_key(client), None)
 
 
 def clear_index_cache() -> None:

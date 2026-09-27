@@ -143,3 +143,39 @@ async def test_detail_requires_login(client, admin):
     await client.post("/api/v1/auth/logout")
     resp = await client.get("/api/v1/detail/manga/anilist/101")
     assert resp.status_code == 401
+
+
+@respx.mock
+async def test_detail_reuses_the_library_snapshot(client, configured):
+    respx.post("https://graphql.anilist.co").mock(return_value=anilist_detail())
+    listing = respx.get("http://mangarr.test/api/v1/series").mock(
+        return_value=Response(200, json=[])
+    )
+    for _ in range(3):
+        assert (await client.get("/api/v1/detail/manga/anilist/101")).status_code == 200
+    assert listing.call_count == 1
+
+
+@respx.mock
+async def test_approval_refreshes_the_library_snapshot(client, configured):
+    respx.post("https://graphql.anilist.co").mock(return_value=anilist_detail())
+    shelved = {"id": 77, "anilist_id": 101, "mangaupdates_id": None, "title": "Dandadan",
+               "english_title": "", "alt_titles": ""}
+    listing = respx.get("http://mangarr.test/api/v1/series").mock(side_effect=[
+        Response(200, json=[]),
+        Response(200, json=[shelved]),
+    ])
+    respx.post("http://mangarr.test/api/v1/series").mock(
+        return_value=Response(201, json={"id": 77})
+    )
+    respx.get("http://mangarr.test/api/v1/series/77").mock(return_value=Response(200, json={
+        **shelved, "chapter_count": 10, "downloaded_count": 0, "chapters": [],
+    }))
+
+    assert (await client.get("/api/v1/detail/manga/anilist/101")).json()["in_library"] is False
+    req = await make_anilist_request(client, 101, "Dandadan")
+    await client.post(f"/api/v1/requests/{req['id']}/approve", json={})
+
+    # the series added by the approval shows immediately, not after the TTL
+    assert (await client.get("/api/v1/detail/manga/anilist/101")).json()["in_library"] is True
+    assert listing.call_count == 2

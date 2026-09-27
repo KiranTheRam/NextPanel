@@ -1,7 +1,9 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -87,6 +89,11 @@ class Request(Base):
     remote_series_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     downloaded_count: Mapped[int] = mapped_column(Integer, default=0)
     total_count: Mapped[int] = mapped_column(Integer, default=0)
+    # the requester has been told this approval is fully available; ongoing
+    # series re-complete with every new chapter and must not notify again
+    available_notified: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("0")
+    )
 
     decided_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
 import { api, appVersion } from "../api/client";
 import { pushEndpointForLogout } from "../api/push";
-import type { AuthStatus, MediaRequest, User } from "../api/types";
+import type { AuthStatus, RequestSummary, User } from "../api/types";
 import { InboxIcon, KeyIcon, LogOutIcon, SearchIcon, SettingsIcon, UserIcon, UsersIcon } from "./icons";
 import { ChangePasswordModal } from "./password";
 import { Modal } from "./common";
@@ -18,13 +18,13 @@ export default function Sidebar({ me }: { me: User }) {
     queryKey: ["authStatus"],
     queryFn: () => api.get<AuthStatus>("/auth/status"),
   });
-  // pending-approval badge for admins
+  // pending-approval badge for admins; a count, not the whole request list
   const { data: pending } = useQuery({
-    queryKey: ["requests", "all"],
-    queryFn: () => api.get<MediaRequest[]>("/requests?scope=all"),
+    queryKey: ["requests", "summary"],
+    queryFn: () => api.get<RequestSummary>("/requests/summary"),
     enabled: me.is_admin,
     refetchInterval: 15000,
-    select: (rows) => rows.filter((r) => r.status === "pending" || r.status === "failed").length,
+    select: (summary) => summary.needs_approval,
   });
 
   const items = [

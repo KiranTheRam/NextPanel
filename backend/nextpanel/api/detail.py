@@ -15,7 +15,7 @@ from .. import settings_service
 from ..arr import ArrClient, ArrError, MangarrClient, PullarrClient
 from ..db import get_session
 from ..discover import fetch_media
-from ..library import load_index
+from ..library import load_index_cached
 from ..models import MediaType, Request
 from ..schemas import ChapterOut, TitleDetailOut
 from ..security import safe_cover_url
@@ -172,7 +172,7 @@ async def title_detail(
             detail = _from_anilist(media)
             titles = [t for t in [media["title"], media["english_title"], *media["synonyms"]] if t]
 
-    library = await load_index(client)
+    library = await load_index_cached(client, allow_stale=False)
     series = library.find(provider, provider_id, titles, detail.year if detail else None)
     if series is not None:
         try:

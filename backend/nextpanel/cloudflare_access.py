@@ -9,6 +9,7 @@ import jwt
 from jwt.algorithms import RSAAlgorithm
 
 from .config import config
+from .http_client import get_client
 
 JWKS_TTL_SECONDS = 5 * 60
 JWKS_MIN_REFRESH_SECONDS = 30
@@ -50,10 +51,9 @@ async def _fetch_jwks(*, force: bool = False) -> dict[str, Any]:
         ):
             return _jwks
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{domain}/cdn-cgi/access/certs")
-                response.raise_for_status()
-                jwks = response.json()
+            response = await get_client().get(f"{domain}/cdn-cgi/access/certs", timeout=5.0)
+            response.raise_for_status()
+            jwks = response.json()
             if not isinstance(jwks, dict) or not isinstance(jwks.get("keys"), list):
                 raise ValueError("invalid JWKS response")
         except (httpx.HTTPError, ValueError) as exc:

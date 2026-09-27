@@ -143,3 +143,27 @@ async def test_request_visibility_and_withdrawal(client, admin):
     assert {r["username"] for r in everything} == {"admin", "reader"}
 
     assert (await client.delete(f"/api/v1/requests/{reader_req['id']}")).status_code == 204
+
+
+async def test_summary_counts_requests_needing_approval(client, configured):
+    from nextpanel.main import app
+
+    await make_request(client, provider_id=1)
+    denied = await make_request(client, provider_id=2)
+    await client.post(f"/api/v1/requests/{denied['id']}/deny", json={})
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as reader:
+        await register_user(reader)
+        await make_request(reader, provider_id=3)
+        mine = (await reader.get("/api/v1/requests/summary")).json()
+    everyone = (await client.get("/api/v1/requests/summary")).json()
+    assert mine == {"needs_approval": 1}
+    assert everyone == {"needs_approval": 2}
+
+
+async def test_request_list_omits_descriptions(client, admin):
+    created = await make_request(client, description="A long synopsis")
+    assert created["description"] == "A long synopsis"
+    listing = (await client.get("/api/v1/requests")).json()
+    assert "description" not in listing[0]

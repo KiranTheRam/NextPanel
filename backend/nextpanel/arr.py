@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from .http_client import get_client
 from .models import MediaType
 
 REQUEST_TIMEOUT = 30.0
@@ -17,6 +18,11 @@ REQUEST_TIMEOUT = 30.0
 
 class ArrError(Exception):
     """The target app rejected the call or could not be reached."""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        # the app's HTTP status; None when it could not be reached at all
+        self.status_code = status_code
 
 
 class ArrConflict(ArrError):
@@ -67,23 +73,25 @@ class ArrClient:
             raise ArrError(f"{self.app_name} is not configured (URL + API key in Settings)")
         url = f"{self.base_url}/api/v1{path}"
         try:
-            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-                resp = await client.request(
-                    method, url, headers={"X-Api-Key": self.api_key}, **kwargs
-                )
+            resp = await get_client().request(
+                method, url, headers={"X-Api-Key": self.api_key},
+                timeout=REQUEST_TIMEOUT, **kwargs,
+            )
         except httpx.HTTPError as exc:
             raise ArrError(f"Cannot reach {self.app_name} at {self.base_url}: {exc}") from exc
         if resp.status_code == 409:
-            raise ArrConflict(f"Series already in {self.app_name}'s library")
+            raise ArrConflict(f"Series already in {self.app_name}'s library", 409)
         if resp.status_code == 401:
-            raise ArrError(f"{self.app_name} rejected the API key")
+            raise ArrError(f"{self.app_name} rejected the API key", 401)
         if resp.status_code >= 400:
             detail = ""
             try:
                 detail = resp.json().get("detail", "")
             except Exception:
                 detail = resp.text[:200]
-            raise ArrError(f"{self.app_name} returned {resp.status_code}: {detail}")
+            raise ArrError(
+                f"{self.app_name} returned {resp.status_code}: {detail}", resp.status_code
+            )
         if resp.status_code == 204:
             return None
         return resp.json()

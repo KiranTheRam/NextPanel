@@ -17,8 +17,7 @@ from datetime import date
 from html import unescape
 from typing import Any
 
-import httpx
-
+from .http_client import get_client
 from .security import safe_cover_url
 
 log = logging.getLogger(__name__)
@@ -237,10 +236,11 @@ async def _cached(key: str, fetch):
 
 
 async def _query(query: str, variables: dict) -> dict:
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(ANILIST_URL, json={"query": query, "variables": variables})
-        resp.raise_for_status()
-        return resp.json().get("data") or {}
+    resp = await get_client().post(
+        ANILIST_URL, json={"query": query, "variables": variables}, timeout=15
+    )
+    resp.raise_for_status()
+    return resp.json().get("data") or {}
 
 
 async def fetch_section(key: str, variables: dict) -> list[DiscoverItem]:

@@ -189,3 +189,16 @@ async def test_gone_subscription_pruned(client, admin, monkeypatch):
     async with session_scope() as session:
         rows = (await session.execute(select(PushSubscription))).scalars().all()
     assert rows == []
+
+
+async def test_notify_later_holds_the_send_until_it_finishes():
+    release = asyncio.Event()
+
+    async def send():
+        await release.wait()
+
+    push.notify_later(send())
+    assert len(push._pending_sends) == 1
+    release.set()
+    await _drain_tasks()
+    assert not push._pending_sends

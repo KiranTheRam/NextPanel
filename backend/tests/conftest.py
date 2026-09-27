@@ -13,12 +13,14 @@ from nextpanel.db import engine, session_scope
 
 @pytest.fixture(autouse=True)
 async def clean_db():
-    from nextpanel import ratelimit
+    from nextpanel import library, ratelimit, status
 
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.drop_all)
         await conn.run_sync(models.Base.metadata.create_all)
     ratelimit.reset()
+    library.clear_index_cache()
+    status._poll_cycle = 0
     yield
 
 

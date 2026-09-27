@@ -168,6 +168,10 @@ class RequestOut(BaseModel):
     decided_by_username: str = ""
 
 
+class RequestSummaryOut(BaseModel):
+    needs_approval: int  # pending or failed
+
+
 class ApproveIn(BaseModel):
     root_folder_id: int | None = None  # override the configured default
 

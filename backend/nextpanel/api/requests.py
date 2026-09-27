@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -7,8 +7,9 @@ from sqlalchemy.orm import selectinload
 from .. import push, settings_service
 from ..arr import ArrConflict, ArrError, client_for
 from ..db import get_session
+from ..library import invalidate_index
 from ..models import MediaType, Request, RequestStatus, User, utcnow
-from ..schemas import ApproveIn, DenyIn, RequestCreateIn, RequestOut
+from ..schemas import ApproveIn, DenyIn, RequestCreateIn, RequestOut, RequestSummaryOut
 from ..security import safe_cover_url
 from ..status import refresh_request
 from .deps import get_current_user, require_admin
@@ -40,7 +41,15 @@ async def _load(session: AsyncSession, request_id: int) -> Request:
     return request
 
 
-@router.get("", response_model=list[RequestOut])
+# Needs Approval: waiting for a decision, or an approval that failed.
+ATTENTION_STATUSES = (RequestStatus.PENDING, RequestStatus.FAILED)
+
+
+# The list is polled while the Requests page is open and never shows the
+# description, which is the bulk of each row.
+@router.get(
+    "", response_model=list[RequestOut], response_model_exclude={"__all__": {"description"}}
+)
 async def list_requests(
     scope: str = "mine",
     session: AsyncSession = Depends(get_session),
@@ -60,14 +69,25 @@ async def list_requests(
     return [_out(r) for r in result.scalars().all()]
 
 
+@router.get("/summary", response_model=RequestSummaryOut)
+async def request_summary(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """Counts for the navigation badge, which polls far more often than
+    anyone reads the full list. Admins count every user's requests."""
+    query = select(func.count(Request.id)).where(Request.status.in_(ATTENTION_STATUSES))
+    if not user.is_admin:
+        query = query.where(Request.user_id == user.id)
+    return RequestSummaryOut(needs_approval=(await session.execute(query)).scalar_one())
+
+
 @router.post("", response_model=RequestOut, status_code=201)
 async def create_request(
     body: RequestCreateIn,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    from sqlalchemy import func
-
     pending_count = (await session.execute(
         select(func.count(Request.id)).where(
             Request.user_id == user.id,
@@ -116,8 +136,7 @@ async def create_request(
     try:
         await session.commit()
     except IntegrityError:
-        # pre-provider-column databases enforce uniqueness on
-        # (media_type, provider_id) only — surface it as a duplicate
+        # a concurrent request for the same title won the insert
         await session.rollback()
         raise HTTPException(409, "Already requested") from None
     push.notify_later(push.notify_admins_new_request(user.username, request.title))
@@ -193,10 +212,13 @@ async def approve_request(
     except ArrError as exc:
         raise HTTPException(502, str(exc)) from exc
 
+    invalidate_index(client)
     request.remote_series_id = remote_id
     request.status = RequestStatus.PROCESSING
     request.note = ""
     request.decided_by_id = admin.id
+    # a retried approval is a new fulfillment and completes (and notifies) anew
+    request.available_notified = False
     # first sync right away so an already-downloaded series shows available
     await refresh_request(session, request, client)
     await session.commit()

@@ -190,6 +190,26 @@ async def test_concurrent_section_library_reads_are_coalesced():
 
 
 @respx.mock
+async def test_expired_library_snapshot_is_only_served_when_stale_is_allowed():
+    route = respx.get("http://mangarr.test/api/v1/series").mock(side_effect=[
+        Response(200, json=[]),
+        Response(200, json=[{"id": 7, "anilist_id": 101, "title": "Dandadan"}]),
+    ])
+    client = MangarrClient("http://mangarr.test", "manga-key")
+    assert (await library.load_index_cached(client)).by_provider_id == {}
+
+    # age the snapshot past its TTL
+    key = library._index_cache_key(client)
+    fetched_at, index = library._index_cache[key]
+    library._index_cache[key] = (fetched_at - library.INDEX_CACHE_TTL_SECONDS - 1, index)
+
+    # the title page waits for the refresh instead of missing a new series
+    fresh = await library.load_index_cached(client, allow_stale=False)
+    assert ("anilist", 101) in fresh.by_provider_id
+    assert route.call_count == 2
+
+
+@respx.mock
 async def test_discover_marks_requested_and_library_titles(client, configured):
     respx.get("http://pullarr.test/api/v1/discover/releases").mock(
         return_value=Response(200, json=[])
