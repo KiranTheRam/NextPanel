@@ -133,7 +133,7 @@ function NtfySettings({
       <h3>ntfy</h3>
       <p className="section-hint">
         Sends admin notifications (new requests waiting for approval, failed automatic approvals
-        and issue reports) to an ntfy topic, for the ntfy app on your phone or desktop. This is
+        and problem reports) to an ntfy topic, for the ntfy app on your phone or desktop. This is
         in addition to browser notifications.
       </p>
       <div className="form-row">

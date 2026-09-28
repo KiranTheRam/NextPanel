@@ -11,7 +11,7 @@ from nextpanel import discover, library
 from nextpanel.arr import MangarrClient
 from nextpanel.discover import _previous_season, _season_start, sections_spec
 
-from .test_requests import make_request, submit_request
+from .test_requests import as_requester, make_request, submit_request
 
 
 @pytest.fixture(autouse=True)
@@ -406,3 +406,111 @@ async def test_discover_cached_between_calls(client, admin):
     first = route.call_count
     await client.get("/api/v1/discover")
     assert route.call_count == first  # served from cache
+
+
+def browse_page(*media, has_next=False):
+    return Response(200, json={"data": {"Page": {
+        "pageInfo": {"hasNextPage": has_next}, "media": list(media),
+    }}})
+
+
+@respx.mock
+async def test_see_all_pages_through_a_manhwa_row(client, configured):
+    route = respx.post("https://graphql.anilist.co").mock(return_value=browse_page(
+        anilist_media(1, "Solo Leveling", country="KR"), has_next=True,
+    ))
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    data = (await client.get("/api/v1/discover/browse", params={
+        "source": "trending", "origin": "manhwa", "page": 2,
+    })).json()
+    assert data["title"] == "Trending Manhwa"
+    assert [i["provider_id"] for i in data["items"]] == [1]
+    assert data["has_more"] is True
+    variables = json.loads(route.calls.last.request.content)["variables"]
+    assert variables["page"] == 2 and variables["perPage"] == 40
+    assert variables["country"] == "KR" and "genre" not in variables
+    assert variables["sort"] == ["TRENDING_DESC"]
+
+
+@respx.mock
+async def test_see_all_manga_leaves_out_manhwa(client, configured):
+    respx.post("https://graphql.anilist.co").mock(return_value=browse_page(
+        anilist_media(1, "Solo Leveling", country="KR"),
+        anilist_media(2, "Dandadan"),
+    ))
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    data = (await client.get("/api/v1/discover/browse", params={
+        "source": "all_time", "origin": "manga",
+    })).json()
+    assert data["title"] == "All-Time Manga Favorites"
+    assert [i["provider_id"] for i in data["items"]] == [2]
+    assert data["has_more"] is False
+
+
+@respx.mock
+async def test_genre_browse(client, configured):
+    route = respx.post("https://graphql.anilist.co").mock(return_value=browse_page(
+        anilist_media(2, "Dandadan"),
+    ))
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    assert "Romance" in (await client.get("/api/v1/discover/genres")).json()
+    assert "Hentai" not in (await client.get("/api/v1/discover/genres")).json()
+
+    data = (await client.get("/api/v1/discover/browse", params={
+        "source": "genre", "genre": "Romance",
+    })).json()
+    assert data["title"] == "Romance Manga & Manhwa"
+    variables = json.loads(route.calls.last.request.content)["variables"]
+    # AniList treats a null country as a filter, so it must be absent
+    assert variables["genre"] == "Romance" and "country" not in variables
+
+    missing = await client.get("/api/v1/discover/browse", params={
+        "source": "genre", "genre": "Hentai",
+    })
+    assert missing.status_code == 404
+
+
+@respx.mock
+async def test_see_all_comics_lists_the_whole_window(client, configured):
+    respx.get("http://pullarr.test/api/v1/discover/releases").mock(return_value=Response(
+        200, json=[comic_entry(n, f"Volume {n}") for n in range(1, 31)]
+    ))
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    data = (await client.get("/api/v1/discover/browse", params={"source": "comics_week"})).json()
+    assert data["title"] == "New Comics This Week"
+    assert len(data["items"]) == 30  # rows stop at 20
+    assert data["has_more"] is False
+
+
+def recommendations_for(seed_id, *recommended):
+    return Response(200, json={"data": {"Media": {
+        "id": seed_id, "title": {"romaji": "Seed", "english": None, "native": None},
+        "synonyms": [], "description": "", "coverImage": {}, "startDate": {"year": 2020},
+        "endDate": {}, "status": "RELEASING", "format": "MANGA", "genres": [],
+        "staff": {"edges": []}, "relations": {"edges": []},
+        "recommendations": {"nodes": [
+            {"mediaRecommendation": {**anilist_media(m, f"Rec {m}"), "type": "MANGA",
+                                     "format": "MANGA", "isAdult": False}}
+            for m in recommended
+        ]},
+    }}})
+
+
+@respx.mock
+async def test_because_you_requested_row_follows_your_latest_request(client, configured):
+    route = respx.post("https://graphql.anilist.co").mock(
+        return_value=recommendations_for(101, 101, 202, 303)
+    )
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    assert (await client.get("/api/v1/discover/sections/because")).json()["sections"] == []
+
+    await make_anilist_request(client, 101, "Dandadan")  # as the requester
+    requester = await as_requester(client)
+    data = (await requester.get("/api/v1/discover/sections/because")).json()
+    [section] = data["sections"]
+    assert section["title"] == "Because you requested Dandadan"
+    assert [i["provider_id"] for i in section["items"]] == [202, 303]  # not the seed
+    assert json.loads(route.calls.last.request.content)["variables"] == {"id": 101}
+
+    # the admin has requested nothing, so has no such row
+    assert (await client.get("/api/v1/discover/sections/because")).json()["sections"] == []

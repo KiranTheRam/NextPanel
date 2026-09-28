@@ -8,7 +8,7 @@ from .. import push, settings_service
 from ..arr import ArrConflict, ArrError, client_for
 from ..db import get_session
 from ..library import invalidate_index
-from ..models import MediaType, Request, RequestStatus, User, utcnow
+from ..models import Issue, IssueStatus, MediaType, Request, RequestStatus, User, utcnow
 from ..schemas import ApproveIn, DenyIn, RequestCreateIn, RequestOut, RequestSummaryOut
 from ..security import safe_cover_url
 from ..status import refresh_request
@@ -112,10 +112,13 @@ def _out(request: Request) -> RequestOut:
 
 
 async def _load(session: AsyncSession, request_id: int) -> Request:
+    # populate_existing: a reload after a change must refresh relationships
+    # the session already holds (decided_by after approving or denying)
     result = await session.execute(
         select(Request)
         .options(selectinload(Request.user), selectinload(Request.decided_by))
         .where(Request.id == request_id)
+        .execution_options(populate_existing=True)
     )
     request = result.scalar_one_or_none()
     if request is None:
@@ -159,9 +162,14 @@ async def request_summary(
     """Counts for the navigation badge, which polls far more often than
     anyone reads the full list. Admins count every user's requests."""
     query = select(func.count(Request.id)).where(Request.status.in_(ATTENTION_STATUSES))
+    issues = select(func.count(Issue.id)).where(Issue.status == IssueStatus.OPEN)
     if not user.is_admin:
         query = query.where(Request.user_id == user.id)
-    return RequestSummaryOut(needs_approval=(await session.execute(query)).scalar_one())
+        issues = issues.where(Issue.user_id == user.id)
+    return RequestSummaryOut(
+        needs_approval=(await session.execute(query)).scalar_one(),
+        open_issues=(await session.execute(issues)).scalar_one(),
+    )
 
 
 @router.post("", response_model=RequestOut, status_code=201)

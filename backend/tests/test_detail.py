@@ -14,8 +14,17 @@ def fresh_cache():
     discover.clear_cache()
 
 
-def anilist_detail(media_id=101, romaji="Dandadan"):
-    return Response(200, json={"data": {"Media": {
+def card(media_id, romaji, *, type="MANGA", format="MANGA", adult=False, year=2020):
+    return {
+        "id": media_id, "type": type, "format": format, "isAdult": adult,
+        "status": "FINISHED", "title": {"romaji": romaji, "english": None, "native": None},
+        "synonyms": [], "coverImage": {"large": f"https://s4.anilist.co/{media_id}.jpg"},
+        "startDate": {"year": year}, "averageScore": 70, "countryOfOrigin": "JP",
+    }
+
+
+def anilist_detail(media_id=101, romaji="Dandadan", **extra):
+    return Response(200, json={"data": {"Media": {**extra,
         "id": media_id,
         "title": {"romaji": romaji, "english": "Dan Da Dan", "native": "ダンダダン"},
         "synonyms": ["Dandadan!"],
@@ -179,3 +188,83 @@ async def test_approval_refreshes_the_library_snapshot(client, configured):
     # the series added by the approval shows immediately, not after the TTL
     assert (await client.get("/api/v1/detail/manga/anilist/101")).json()["in_library"] is True
     assert listing.call_count == 2
+
+
+
+@respx.mock
+async def test_detail_lists_related_manga_recommendations_and_links(client, configured):
+    respx.post("https://graphql.anilist.co").mock(return_value=anilist_detail(
+        siteUrl="https://anilist.co/manga/101",
+        externalLinks=[
+            {"site": "MANGA Plus", "url": "https://mangaplus.shueisha.co.jp/titles/1",
+             "type": "STREAMING", "language": "English"},
+            {"site": "MANGA Plus", "url": "https://mangaplus.shueisha.co.jp/titles/2",
+             "type": "STREAMING", "language": "Spanish"},
+            {"site": "VIZ", "url": "https://www.viz.com/dandadan", "type": "STREAMING",
+             "language": "English"},
+            {"site": "Sketchy", "url": "javascript:alert(1)", "type": "INFO"},
+        ],
+        relations={"edges": [
+            {"relationType": "SEQUEL", "node": card(201, "Dandadan Part 2")},
+            {"relationType": "ADAPTATION", "node": card(301, "Dandadan (anime)", type="ANIME", format="TV")},
+            {"relationType": "SPIN_OFF", "node": card(202, "Dandadan: Light Novel", format="NOVEL")},
+            {"relationType": "CHARACTER", "node": card(203, "Crossover")},
+        ]},
+        recommendations={"nodes": [
+            {"mediaRecommendation": card(401, "Chainsaw Man")},
+            {"mediaRecommendation": card(402, "Adult Title", adult=True)},
+            {"mediaRecommendation": None},
+        ]},
+    ))
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[
+        {"id": 9, "anilist_id": 401, "title": "Chainsaw Man", "year": 2018},
+    ]))
+
+    data = (await client.get("/api/v1/detail/manga/anilist/101")).json()
+    assert [(r["provider_id"], r["subtitle"]) for r in data["related"]] == [(201, "Sequel")]
+    assert data["related"][0]["provider"] == "anilist"
+    assert [r["provider_id"] for r in data["recommendations"]] == [401]
+    assert data["recommendations"][0]["in_library"] is True
+    assert data["links"] == [
+        {"label": "AniList", "url": "https://anilist.co/manga/101"},
+        {"label": "MANGA Plus (English)", "url": "https://mangaplus.shueisha.co.jp/titles/1"},
+        {"label": "MANGA Plus (Spanish)", "url": "https://mangaplus.shueisha.co.jp/titles/2"},
+        {"label": "VIZ", "url": "https://www.viz.com/dandadan"},
+    ]
+
+
+@respx.mock
+async def test_shelved_mangaupdates_series_uses_its_anilist_id(client, configured):
+    anilist = respx.post("https://graphql.anilist.co").mock(return_value=anilist_detail(
+        relations={"edges": [{"relationType": "PREQUEL", "node": card(200, "Before")}]},
+        recommendations={"nodes": []},
+    ))
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[
+        {"id": 7, "anilist_id": 101, "mangaupdates_id": 55099564912, "title": "One Piece"},
+    ]))
+    respx.get("http://mangarr.test/api/v1/series/7").mock(return_value=Response(200, json={
+        "id": 7, "title": "One Piece", "chapters": [], "downloaded_count": 0,
+    }))
+    data = (await client.get(
+        "/api/v1/detail/manga/mangaupdates/55099564912", params={"title": "One Piece"}
+    )).json()
+    assert data["title"] == "One Piece"  # the library's metadata, not AniList's
+    assert [r["subtitle"] for r in data["related"]] == ["Prequel"]
+    assert {link["label"]: link["url"] for link in data["links"]} == {
+        "AniList": "https://anilist.co/manga/101",
+        "MangaUpdates": "https://www.mangaupdates.com/series/pb8uwds",
+    }
+    assert anilist.called
+
+
+@respx.mock
+async def test_comic_detail_links_to_comicvine(client, configured):
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    respx.get("http://pullarr.test/api/v1/search/metadata").mock(return_value=Response(200, json=[
+        {"provider": "comicvine", "provider_id": "796", "title": "Batman", "year": 1940},
+    ]))
+    data = (await client.get("/api/v1/detail/comic/comicvine/796", params={"title": "Batman"})).json()
+    assert data["links"] == [
+        {"label": "ComicVine", "url": "https://comicvine.gamespot.com/volume/4050-796/"}
+    ]
+    assert data["related"] == [] and data["recommendations"] == []

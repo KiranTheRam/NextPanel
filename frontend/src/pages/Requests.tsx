@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { invalidateRequestViews } from "../api/cache";
 import { titleHref } from "../api/paths";
-import type { MediaRequest, MediaType, RequestStatus, User } from "../api/types";
-import { ConfirmModal, EmptyState, LoadError, MediaBadge, Spinner, StatusPill, Toolbar } from "../components/common";
+import type { Issue, MediaRequest, MediaType, RequestStatus, RequestSummary, User } from "../api/types";
+import { ConfirmModal, EmptyState, MediaBadge, Spinner, StatusPill, Toolbar } from "../components/common";
 import { CheckIcon, InboxIcon, RefreshIcon, XIcon } from "../components/icons";
 import NotificationsButton from "../components/NotificationsButton";
+import { IssueActions, IssueStatusPill, issueKindLabel } from "../components/Issues";
 import { ApprovalButtons } from "../components/RequestActions";
 
 function Progress({ request }: { request: MediaRequest }) {
@@ -19,11 +20,139 @@ function Progress({ request }: { request: MediaRequest }) {
   );
 }
 
+type View = "pending" | "all" | "issues";
+
+/** Problem reports: every user's for admins, your own otherwise. */
+function IssuesView({ me }: { me: User }) {
+  const [status, setStatus] = useState<"open" | "resolved" | "all">("open");
+  const scope = me.is_admin ? "all" : "mine";
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["issues", "list", scope, status],
+    queryFn: () => api.get<Issue[]>(`/issues?scope=${scope}&status=${status}`),
+    refetchInterval: 30000,
+  });
+  return (
+    <>
+      <div className="request-filters">
+        <select aria-label="Filter by report status" value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
+          <option value="open">Open</option>
+          <option value="resolved">Resolved</option>
+          <option value="all">All reports</option>
+        </select>
+      </div>
+      {isLoading && <Spinner />}
+      {error && (
+        <div className="error-banner" role="alert">
+          Could not load reports: {(error as Error).message}{" "}
+          <button className="btn" onClick={() => refetch()}>Retry</button>
+        </div>
+      )}
+      {data && data.length === 0 && (
+        <EmptyState
+          icon={<CheckIcon size={40} />}
+          title={status === "open" ? "No open problems" : "No reports"}
+          hint={me.is_admin
+            ? "Problems your users report on a title's page show up here."
+            : "If something in the library is missing or wrong, report it from the title's page."}
+        />
+      )}
+      {data && data.length > 0 && (
+        <div className="table-wrap">
+          <table className="data-table card-table issue-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Title</th>
+                <th>Problem</th>
+                {me.is_admin && <th>Reported By</th>}
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((issue) => (
+                <tr key={issue.id}>
+                  <td className="cell-cover">
+                    {issue.cover_url ? (
+                      <img className="request-cover" src={issue.cover_url} alt="" loading="lazy" />
+                    ) : (
+                      <div className="request-cover" />
+                    )}
+                  </td>
+                  <td className="cell-rqtitle">
+                    <Link className="request-title-link" to={titleHref(issue)}>{issue.title}</Link>
+                    <div className="issue-meta">{new Date(issue.created_at).toLocaleDateString()}</div>
+                  </td>
+                  <td className="cell-problem">
+                    <strong>{issueKindLabel(issue.kind)}</strong>
+                    {issue.message && <div className="issue-message">{issue.message}</div>}
+                    {issue.resolution && (
+                      <div className="issue-resolution">
+                        {issue.resolved_by_username || "Admin"}: {issue.resolution}
+                      </div>
+                    )}
+                  </td>
+                  {me.is_admin && <td className="cell-user">{issue.username}</td>}
+                  <td className="cell-status"><IssueStatusPill issue={issue} /></td>
+                  <td className="cell-actions"><IssueActions issue={issue} me={me} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function Requests({ me }: { me: User }) {
+  // the tab lives in the URL so a notification can open Problems directly
+  const [params, setParams] = useSearchParams();
+  const defaultView: View = me.is_admin ? "pending" : "all";
+  const view = (params.get("view") as View | null) ?? defaultView;
+  const setView = (next: View) => setParams(next === defaultView ? {} : { view: next }, { replace: true });
+  const { data: summary } = useQuery({
+    queryKey: ["requests", "summary"],
+    queryFn: () => api.get<RequestSummary>("/requests/summary"),
+    refetchInterval: 15000,
+  });
+
+  const tabs: [View, string][] = me.is_admin
+    ? [
+        ["pending", `Needs Approval${summary?.needs_approval ? ` (${summary.needs_approval})` : ""}`],
+        ["all", "All Requests"],
+        ["issues", `Problems${summary?.open_issues ? ` (${summary.open_issues})` : ""}`],
+      ]
+    : [["all", "My Requests"], ["issues", "My Problem Reports"]];
+
+  return (
+    <>
+      <Toolbar title={me.is_admin ? "Requests" : "My Requests"}>
+        <NotificationsButton />
+      </Toolbar>
+      <div className="content">
+        <div className="seg" role="tablist" style={{ display: "inline-flex", marginBottom: 16 }}>
+          {tabs.map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={view === key}
+              className={view === key ? "active" : ""}
+              onClick={() => setView(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {view === "issues" ? <IssuesView me={me} /> : <RequestsView me={me} view={view} />}
+      </div>
+    </>
+  );
+}
+
+function RequestsView({ me, view }: { me: User; view: "pending" | "all" }) {
   const queryClient = useQueryClient();
   const scope = me.is_admin ? "all" : "mine";
-  // admins land on the approval queue; switch to All for history
-  const [view, setView] = useState<"pending" | "all">(me.is_admin ? "pending" : "all");
   const [search, setSearch] = useState("");
   const [requester, setRequester] = useState("");
   const [mediaFilter, setMediaFilter] = useState<"all" | MediaType>("all");
@@ -55,19 +184,16 @@ export default function Requests({ me }: { me: User }) {
     onError,
   });
 
-  if (isLoading) {
+  if (isLoading) return <Spinner />;
+  if (!data) {
     return (
-      <>
-        <Toolbar title="Requests" />
-        <Spinner />
-      </>
+      <div className="error-banner" role="alert">
+        Could not load requests: {loadError instanceof Error ? loadError.message : "Unknown error"}{" "}
+        <button className="btn" onClick={() => refetch()}>Retry</button>
+      </div>
     );
   }
-  if (!data) {
-    return <><Toolbar title="Requests" /><LoadError error={loadError} onRetry={() => refetch()} /></>;
-  }
 
-  const pendingCount = data.filter((r) => r.status === "pending" || r.status === "failed").length;
   const rows = me.is_admin && view === "pending"
     ? data.filter((r) => r.status === "pending" || r.status === "failed")
     : data;
@@ -82,23 +208,6 @@ export default function Requests({ me }: { me: User }) {
 
   return (
     <>
-      <Toolbar title={me.is_admin ? "Requests" : "My Requests"}>
-        <NotificationsButton />
-      </Toolbar>
-      <div className="content">
-        {me.is_admin && (
-          <div className="seg" style={{ display: "inline-flex", marginBottom: 16 }}>
-            <button
-              className={view === "pending" ? "active" : ""}
-              onClick={() => setView("pending")}
-            >
-              Needs Approval{pendingCount ? ` (${pendingCount})` : ""}
-            </button>
-            <button className={view === "all" ? "active" : ""} onClick={() => setView("all")}>
-              All Requests
-            </button>
-          </div>
-        )}
         <div className="request-filters">
           <input
             aria-label="Search request titles"
@@ -238,7 +347,6 @@ export default function Requests({ me }: { me: User }) {
             </table>
           </div>
         )}
-      </div>
       {removing && (
         <ConfirmModal
           title={me.is_admin ? "Remove request?" : "Withdraw request?"}

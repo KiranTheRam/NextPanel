@@ -38,6 +38,8 @@ export interface SearchResult {
   year: number | null;
   cover_url: string;
   total_count: number | null;
+  score: number | null;
+  country: string;
   in_library: boolean;
   request_id: number | null;
   request_status: RequestStatus | null;
@@ -70,6 +72,26 @@ export interface MediaRequest {
 
 export interface RequestSummary {
   needs_approval: number;
+  open_issues: number;
+}
+
+export type IssueKind = "missing" | "wrong_series" | "bad_files" | "other";
+
+export interface Issue {
+  id: number;
+  media_type: MediaType;
+  provider: string;
+  provider_id: number;
+  title: string;
+  cover_url: string;
+  kind: IssueKind;
+  message: string;
+  status: "open" | "resolved";
+  resolution: string;
+  created_at: string;
+  resolved_at: string | null;
+  username: string;
+  resolved_by_username: string;
 }
 
 export type Settings = Record<string, string>;
@@ -141,6 +163,9 @@ export interface TitleDetail {
   library_series_id: number | null;
   request_id: number | null;
   request_status: RequestStatus | null;
+  links: { label: string; url: string }[];
+  related: DiscoverItem[];
+  recommendations: DiscoverItem[];
 }
 
 export interface DiscoverSection {
@@ -151,5 +176,12 @@ export interface DiscoverSection {
 
 export interface DiscoverResponse {
   sections: DiscoverSection[];
+  errors: Record<string, string>;
+}
+
+export interface BrowseResponse {
+  title: string;
+  items: DiscoverItem[];
+  has_more: boolean;
   errors: Record<string, string>;
 }

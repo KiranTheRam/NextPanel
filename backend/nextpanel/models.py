@@ -41,6 +41,9 @@ class User(Base):
     sessions: Mapped[list["UserSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    issues: Mapped[list["Issue"]] = relationship(
+        back_populates="user", foreign_keys="Issue.user_id", cascade="all, delete-orphan"
+    )
 
 
 class UserSession(Base):
@@ -110,6 +113,48 @@ class Request(Base):
 
     user: Mapped[User] = relationship(back_populates="requests", foreign_keys=[user_id])
     decided_by: Mapped[User | None] = relationship(foreign_keys=[decided_by_id])
+
+
+class IssueKind(str, enum.Enum):
+    MISSING = "missing"            # chapters/issues missing from the library
+    WRONG_SERIES = "wrong_series"  # the app matched a different series
+    BAD_FILES = "bad_files"        # unreadable, wrong language, poor scans
+    OTHER = "other"
+
+
+class IssueStatus(str, enum.Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+
+
+class Issue(Base):
+    """A problem a user reported with a title that is (supposedly) in the
+    library. Keyed by the title's metadata identity, like requests, since
+    the reporter need not be the one who requested it."""
+
+    __tablename__ = "issues"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    media_type: Mapped[MediaType] = mapped_column(Enum(MediaType))
+    provider: Mapped[str] = mapped_column(String)
+    provider_id: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String)
+    cover_url: Mapped[str] = mapped_column(String, default="")
+    kind: Mapped[IssueKind] = mapped_column(Enum(IssueKind))
+    message: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[IssueStatus] = mapped_column(
+        Enum(IssueStatus), default=IssueStatus.OPEN, index=True
+    )
+    resolution: Mapped[str] = mapped_column(Text, default="")  # the admin's note
+    resolved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="issues", foreign_keys=[user_id])
+    resolved_by: Mapped[User | None] = relationship(foreign_keys=[resolved_by_id])
 
 
 class PushSubscription(Base):

@@ -25,6 +25,9 @@ log = logging.getLogger(__name__)
 ANILIST_URL = "https://graphql.anilist.co"
 CACHE_TTL_SECONDS = 30 * 60
 PAGE_SIZE = 30
+# Searches and title pages each add an entry; keep the cache bounded.
+MAX_CACHE_ENTRIES = 1000
+SEARCH_RESULTS = 20
 
 QUERY = """
 query ($perPage: Int, $sort: [MediaSort], $startGreater: FuzzyDateInt, $startLesser: FuzzyDateInt) {
@@ -32,12 +35,66 @@ query ($perPage: Int, $sort: [MediaSort], $startGreater: FuzzyDateInt, $startLes
     media(type: MANGA, format_in: [MANGA], sort: $sort, isAdult: false,
           startDate_greater: $startGreater, startDate_lesser: $startLesser) {
       id
-      title { romaji english }
+      title { romaji english native }
       synonyms
       coverImage { extraLarge large }
       startDate { year }
       averageScore
       countryOfOrigin
+    }
+  }
+}
+"""
+
+# "See all" and genre pages: the rows' query plus paging, a genre and an
+# origin country. Unused filters must be left out of the variables: AniList
+# reads `countryOfOrigin: null` as "has no country" and matches nothing.
+BROWSE_QUERY = """
+query ($page: Int, $perPage: Int, $sort: [MediaSort], $startGreater: FuzzyDateInt,
+       $startLesser: FuzzyDateInt, $genre: String, $country: CountryCode) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage }
+    media(type: MANGA, format_in: [MANGA], sort: $sort, isAdult: false,
+          startDate_greater: $startGreater, startDate_lesser: $startLesser,
+          genre: $genre, countryOfOrigin: $country) {
+      id
+      title { romaji english native }
+      synonyms
+      coverImage { extraLarge large }
+      startDate { year }
+      averageScore
+      countryOfOrigin
+    }
+  }
+}
+"""
+BROWSE_PAGE_SIZE = 40
+
+# AniList's genre list, less Hentai (adult titles are never shown).
+GENRES = [
+    "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror",
+    "Mahou Shoujo", "Mecha", "Music", "Mystery", "Psychological", "Romance",
+    "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller",
+]
+
+# Manga search. Light novels and adult titles are left out, as they are from
+# the recommendation rows: mangarr downloads comics-format manga.
+SEARCH_QUERY = """
+query ($search: String, $perPage: Int) {
+  Page(page: 1, perPage: $perPage) {
+    media(search: $search, type: MANGA, format_in: [MANGA, ONE_SHOT], isAdult: false,
+          sort: SEARCH_MATCH) {
+      id
+      title { romaji english native }
+      synonyms
+      description(asHtml: false)
+      coverImage { extraLarge large }
+      startDate { year }
+      status
+      chapters
+      averageScore
+      countryOfOrigin
+      genres
     }
   }
 }
@@ -65,10 +122,47 @@ query ($id: Int) {
     popularity
     genres
     countryOfOrigin
+    siteUrl
+    externalLinks { site url type language }
     staff(perPage: 6, sort: RELEVANCE) { edges { role node { name { full } } } }
+    relations { edges { relationType(version: 2) node { ...Card } } }
+    recommendations(sort: RATING_DESC, perPage: 15) {
+      nodes { mediaRecommendation { ...Card } }
+    }
   }
 }
+
+fragment Card on Media {
+  id
+  type
+  format
+  isAdult
+  status
+  title { romaji english native }
+  synonyms
+  coverImage { extraLarge large }
+  startDate { year }
+  averageScore
+  countryOfOrigin
+}
 """
+
+# Relations worth showing on a manga's page, in AniList's version-2 terms.
+# CHARACTER (shared characters only) is left out as noise.
+RELATION_LABELS = {
+    "PREQUEL": "Prequel",
+    "SEQUEL": "Sequel",
+    "PARENT": "Parent story",
+    "SIDE_STORY": "Side story",
+    "SPIN_OFF": "Spin-off",
+    "ALTERNATIVE": "Alternative version",
+    "SUMMARY": "Summary",
+    "COMPILATION": "Compilation",
+    "CONTAINS": "Contains",
+    "SOURCE": "Source",
+    "ADAPTATION": "Adaptation",
+    "OTHER": "Related",
+}
 
 
 @dataclass
@@ -84,10 +178,14 @@ class DiscoverItem:
     score: int | None = None
     genres: list[str] = field(default_factory=list)
     country: str = ""
+    native_title: str = ""
+    chapters: int | None = None
 
     @property
     def titles(self) -> list[str]:
-        return [t for t in (self.title, self.english_title, *self.synonyms) if t]
+        return [
+            t for t in (self.title, self.english_title, self.native_title, *self.synonyms) if t
+        ]
 
 
 def _season_start(day: date) -> date:
@@ -169,6 +267,36 @@ def _clean_description(raw: str | None, limit: int = 600) -> str:
     return text[:limit] if limit else text
 
 
+def _is_requestable_manga(media: dict | None) -> bool:
+    """What mangarr can take: manga-format, non-adult (as in the rows)."""
+    return bool(
+        media
+        and media.get("type") == "MANGA"
+        and media.get("format") in ("MANGA", "ONE_SHOT")
+        and not media.get("isAdult")
+    )
+
+
+# official links shown on a title page, in AniList's order
+MAX_EXTERNAL_LINKS = 6
+
+
+def _https_links(raw: list[dict] | None) -> list[dict[str, str]]:
+    links = [
+        (str(link.get("site") or ""), str(link.get("url") or ""), link.get("language") or "")
+        for link in raw or []
+    ]
+    links = [(site, url, language) for site, url, language in links
+             if site and url.startswith("https://")][:MAX_EXTERNAL_LINKS]
+    sites = [site for site, _url, _language in links]
+    # a publisher often has one link per region: tell them apart
+    return [
+        {"label": f"{site} ({language})" if language and sites.count(site) > 1 else site,
+         "url": url}
+        for site, url, language in links
+    ]
+
+
 def _to_item(media: dict) -> DiscoverItem:
     titles = media.get("title") or {}
     cover = media.get("coverImage") or {}
@@ -176,6 +304,7 @@ def _to_item(media: dict) -> DiscoverItem:
         provider_id=int(media["id"]),
         title=titles.get("romaji") or titles.get("english") or "Untitled",
         english_title=titles.get("english") or "",
+        native_title=titles.get("native") or "",
         synonyms=[s for s in (media.get("synonyms") or []) if s],
         description=_clean_description(media.get("description")),
         status=(media.get("status") or "").lower(),
@@ -184,6 +313,7 @@ def _to_item(media: dict) -> DiscoverItem:
         score=media.get("averageScore"),
         genres=media.get("genres") or [],
         country=media.get("countryOfOrigin") or "",
+        chapters=media.get("chapters"),
     )
 
 
@@ -209,6 +339,9 @@ async def _load_and_cache(key: str, fetch):
             raise
         async with _cache_lock:
             _cache[key] = (time.monotonic(), value)
+            if len(_cache) > MAX_CACHE_ENTRIES:
+                for old in sorted(_cache, key=lambda k: _cache[k][0])[: len(_cache) // 10]:
+                    del _cache[old]
         return value
     finally:
         async with _cache_lock:
@@ -265,6 +398,43 @@ async def warm_sections() -> None:
         log.info("AniList recommendation cache warmed")
 
 
+async def browse(
+    variables: dict, *, page: int, genre: str | None, origin: str
+) -> tuple[list[DiscoverItem], bool]:
+    """One page of a row's full listing or of a genre. `origin` is "manga"
+    (everything but Korean titles, like the rows), "manhwa" or "all"."""
+    query_vars = {**variables, "page": page, "perPage": BROWSE_PAGE_SIZE}
+    query_vars.setdefault("sort", ["POPULARITY_DESC"])
+    if genre:
+        query_vars["genre"] = genre
+    if origin == "manhwa":
+        query_vars["country"] = "KR"
+    key = "browse:" + ",".join(f"{k}={query_vars[k]}" for k in sorted(query_vars)) + f":{origin}"
+
+    async def load() -> tuple[list[DiscoverItem], bool]:
+        data = await _query(BROWSE_QUERY, query_vars)
+        page_data = data.get("Page") or {}
+        items = [_to_item(m) for m in page_data.get("media") or []]
+        if origin == "manga":
+            # AniList cannot exclude a country, so Korean titles are dropped
+            # here; pages may come back a little short
+            items = [item for item in items if item.country != "KR"]
+        return items, bool((page_data.get("pageInfo") or {}).get("hasNextPage"))
+
+    return await _cached(key, load)
+
+
+async def search(query: str) -> list[DiscoverItem]:
+    """AniList manga matching a search, cached like the rows."""
+    normalized = " ".join(query.lower().split())
+
+    async def load() -> list[DiscoverItem]:
+        data = await _query(SEARCH_QUERY, {"search": normalized, "perPage": SEARCH_RESULTS})
+        return [_to_item(m) for m in (data.get("Page") or {}).get("media") or []]
+
+    return await _cached(f"search:{normalized}", load)
+
+
 async def fetch_media(anilist_id: int) -> dict | None:
     """Full metadata for one AniList title (detail page)."""
 
@@ -298,6 +468,20 @@ async def fetch_media(anilist_id: int) -> dict | None:
             "genres": media.get("genres") or [],
             "country": media.get("countryOfOrigin") or "",
             "staff": [s for s in staff if s["name"]],
+            "site_url": media.get("siteUrl") or "",
+            "external_links": _https_links(media.get("externalLinks")),
+            # (label, item) in AniList's order: prequels and sequels first
+            "relations": [
+                (RELATION_LABELS[edge["relationType"]], _to_item(edge["node"]))
+                for edge in ((media.get("relations") or {}).get("edges") or [])
+                if edge.get("relationType") in RELATION_LABELS
+                and _is_requestable_manga(edge.get("node"))
+            ],
+            "recommendations": [
+                _to_item(node["mediaRecommendation"])
+                for node in ((media.get("recommendations") or {}).get("nodes") or [])
+                if _is_requestable_manga(node.get("mediaRecommendation"))
+            ],
         }
 
     return await _cached(f"media:{anilist_id}", load)

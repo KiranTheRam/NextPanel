@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .models import MediaType, RequestStatus
+from .models import IssueKind, IssueStatus, MediaType, RequestStatus
 from .security import safe_cover_url
 
 
@@ -71,6 +71,8 @@ class SearchResultOut(BaseModel):
     year: int | None = None
     cover_url: str = ""
     total_count: int | None = None
+    score: int | None = None  # AniList average, 0-100
+    country: str = ""  # AniList origin: JP, KR (manhwa), CN (manhua)
     in_library: bool = False
     # status of an existing NextPanel request for this title, if any
     request_id: int | None = None
@@ -97,6 +99,32 @@ class ChapterOut(BaseModel):
 class StaffOut(BaseModel):
     name: str
     role: str = ""
+
+
+class TitleCardOut(BaseModel):
+    """A title shown as a poster card (discover rows, related titles)."""
+
+    media_type: MediaType
+    provider: str
+    provider_id: int
+    title: str
+    english_title: str = ""
+    description: str = ""
+    status: str = ""
+    year: int | None = None
+    cover_url: str = ""
+    score: int | None = None
+    subtitle: str = ""
+    genres: list[str] = Field(default_factory=list)
+    in_library: bool = False
+    library_series_id: int | None = None
+    request_id: int | None = None
+    request_status: RequestStatus | None = None
+
+
+class LinkOut(BaseModel):
+    label: str
+    url: str
 
 
 class TitleDetailOut(BaseModel):
@@ -128,6 +156,9 @@ class TitleDetailOut(BaseModel):
     library_series_id: int | None = None
     request_id: int | None = None
     request_status: RequestStatus | None = None
+    links: list[LinkOut] = Field(default_factory=list)
+    related: list[TitleCardOut] = Field(default_factory=list)
+    recommendations: list[TitleCardOut] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------- requests
@@ -173,6 +204,46 @@ class RequestOut(BaseModel):
 
 class RequestSummaryOut(BaseModel):
     needs_approval: int  # pending or failed
+    open_issues: int = 0
+
+
+# ------------------------------------------------------------------ issues
+
+class IssueCreateIn(BaseModel):
+    media_type: MediaType
+    provider: str = Field(min_length=1, max_length=40)
+    provider_id: int
+    title: str = Field(min_length=1, max_length=300)
+    cover_url: str = Field(default="", max_length=2048)
+    kind: IssueKind
+    message: str = Field(default="", max_length=2000)
+
+    @field_validator("cover_url")
+    @classmethod
+    def _cover_allowed(cls, value: str) -> str:
+        return safe_cover_url(value)
+
+
+class IssueResolveIn(BaseModel):
+    resolution: str = Field(default="", max_length=2000)
+
+
+class IssueOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    media_type: MediaType
+    provider: str
+    provider_id: int
+    title: str
+    cover_url: str
+    kind: IssueKind
+    message: str
+    status: IssueStatus
+    resolution: str
+    created_at: datetime
+    resolved_at: datetime | None
+    username: str = ""
+    resolved_by_username: str = ""
 
 
 class ApproveIn(BaseModel):

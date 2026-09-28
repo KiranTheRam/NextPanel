@@ -20,7 +20,7 @@ from sqlalchemy import delete, select
 from . import ntfy
 from .config import config
 from .db import session_scope
-from .models import MediaType, PushSubscription, User
+from .models import IssueKind, MediaType, PushSubscription, User
 
 log = logging.getLogger(__name__)
 
@@ -177,4 +177,38 @@ async def notify_request_available(
     await ntfy.notify(
         f"{title} is available", f"All {count} {unit} are downloaded",
         path=url, tags=["white_check_mark"], only_if="ntfy_notify_available",
+    )
+
+
+ISSUE_LABELS = {
+    IssueKind.MISSING: "Missing chapters or issues",
+    IssueKind.WRONG_SERIES: "Wrong series",
+    IssueKind.BAD_FILES: "Bad files",
+    IssueKind.OTHER: "Problem",
+}
+
+
+async def notify_admins_new_issue(
+    username: str, title: str, kind: IssueKind, message: str
+) -> None:
+    body = f"{username} reported {ISSUE_LABELS[kind].lower()} for {title}"
+    if message:
+        body += f": {message}"
+    await push_to_users(await admin_user_ids(), "Issue reported", body, url="/requests?view=issues")
+    await ntfy.notify("Issue reported", body, path="/requests?view=issues", tags=["warning"])
+
+
+async def notify_issue_resolved(
+    user_id: int,
+    title: str,
+    resolution: str,
+    media_type: MediaType,
+    provider: str,
+    provider_id: int,
+) -> None:
+    await push_to_users(
+        [user_id],
+        "Issue resolved",
+        f"Your report about {title} was resolved" + (f": {resolution}" if resolution else ""),
+        url=_title_url(media_type, provider, provider_id, title),
     )

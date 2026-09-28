@@ -14,13 +14,16 @@ from nextpanel.db import engine, session_scope
 
 @pytest.fixture(autouse=True)
 async def clean_db():
-    from nextpanel import library, ratelimit, status
+    from nextpanel import discover, library, ratelimit, status
+    from nextpanel.api import search
 
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.drop_all)
         await conn.run_sync(models.Base.metadata.create_all)
     ratelimit.reset()
     library.clear_index_cache()
+    discover.clear_cache()
+    search.clear_cache()
     status._poll_cycle = 0
     yield
     # finish fire-and-forget notifications before the next test drops tables

@@ -187,8 +187,8 @@ async def test_summary_counts_requests_needing_approval(client, configured):
         await make_request(reader, provider_id=3)
         mine = (await reader.get("/api/v1/requests/summary")).json()
     everyone = (await client.get("/api/v1/requests/summary")).json()
-    assert mine == {"needs_approval": 1}
-    assert everyone == {"needs_approval": 2}
+    assert mine == {"needs_approval": 1, "open_issues": 0}
+    assert everyone == {"needs_approval": 2, "open_issues": 0}
 
 
 async def test_request_list_omits_descriptions(client, admin):
@@ -276,7 +276,7 @@ async def test_failed_automatic_approval_waits_for_an_admin(client, configured, 
     await _drain_tasks()
     assert len(sent) == 1 and "Automatic approval failed" in sent[0]
     summary = (await client.get("/api/v1/requests/summary")).json()
-    assert summary == {"needs_approval": 1}
+    assert summary == {"needs_approval": 1, "open_issues": 0}
 
 
 async def test_pending_limit_is_configurable(client, admin):
@@ -294,3 +294,15 @@ async def test_pending_limit_is_configurable(client, admin):
 
     bad = await client.put("/api/v1/settings", json={"max_pending_requests": "-1"})
     assert bad.status_code == 422
+
+
+@respx.mock
+async def test_decisions_name_the_admin_who_made_them(client, configured):
+    req = await make_request(client, provider_id=1)
+    mock_mangarr_add()
+    approved = (await client.post(f"/api/v1/requests/{req['id']}/approve", json={})).json()
+    assert approved["decided_by_username"] == "admin"
+
+    other = await make_request(client, provider_id=2)
+    denied = (await client.post(f"/api/v1/requests/{other['id']}/deny", json={})).json()
+    assert denied["decided_by_username"] == "admin"

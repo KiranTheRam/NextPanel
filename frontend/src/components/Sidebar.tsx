@@ -24,7 +24,7 @@ export default function Sidebar({ me }: { me: User }) {
     queryFn: () => api.get<RequestSummary>("/requests/summary"),
     enabled: me.is_admin,
     refetchInterval: 15000,
-    select: (summary) => summary.needs_approval,
+    select: (summary) => summary.needs_approval + summary.open_issues,
   });
 
   const items = [

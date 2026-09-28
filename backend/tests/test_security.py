@@ -135,6 +135,9 @@ async def test_oversized_request_body_rejected(client):
 
 @respx.mock
 async def test_search_errors_hide_internal_urls(client, configured):
+    from .test_search import mock_sources
+
+    mock_sources()
     respx.get("http://mangarr.test/api/v1/search/metadata").mock(
         return_value=Response(500, json={"detail": "internal explosion"})
     )

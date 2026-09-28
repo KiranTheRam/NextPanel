@@ -6,6 +6,7 @@ import { pushSupported, syncPushSubscription } from "./api/push";
 import type { User } from "./api/types";
 import { Spinner } from "./components/common";
 import Sidebar from "./components/Sidebar";
+import Browse from "./pages/Browse";
 import Discover from "./pages/Discover";
 import Login from "./pages/Login";
 import Requests from "./pages/Requests";
@@ -58,6 +59,7 @@ export default function App() {
       <div className="main">
         <Routes>
           <Route path="/" element={<Discover />} />
+          <Route path="/browse/:source" element={<Browse />} />
           <Route path="/title/:mediaType/:provider/:providerId" element={<Title me={me} />} />
           <Route path="/requests" element={<Requests me={me} />} />
           {me.is_admin && <Route path="/users" element={<Users me={me} />} />}

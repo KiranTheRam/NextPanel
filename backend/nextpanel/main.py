@@ -9,7 +9,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, discover as discover_service, http_client, scheduler
-from .api import auth, detail, discover, push, requests, search, settings, users, webhooks
+from .api import (
+    auth, detail, discover, issues, push, requests, search, settings, users, webhooks,
+)
 from .config import config
 from .db import init_db
 
@@ -86,6 +88,7 @@ api.include_router(search.router)
 api.include_router(discover.router)
 api.include_router(detail.router)
 api.include_router(requests.router)
+api.include_router(issues.router)
 api.include_router(users.router)
 api.include_router(settings.router)
 api.include_router(webhooks.router)
