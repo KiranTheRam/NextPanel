@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 
@@ -22,6 +23,11 @@ async def clean_db():
     library.clear_index_cache()
     status._poll_cycle = 0
     yield
+    # finish fire-and-forget notifications before the next test drops tables
+    from nextpanel import push
+
+    while push._pending_sends:
+        await asyncio.gather(*list(push._pending_sends), return_exceptions=True)
 
 
 @pytest.fixture

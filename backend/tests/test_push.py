@@ -96,9 +96,10 @@ async def test_push_requires_login(client):
 
 
 async def _drain_tasks():
-    # let notify_later fire-and-forget tasks run
-    for _ in range(3):
-        await asyncio.sleep(0.02)
+    # wait for notify_later's fire-and-forget sends to finish
+    await asyncio.sleep(0)
+    while push._pending_sends:
+        await asyncio.gather(*list(push._pending_sends), return_exceptions=True)
 
 
 async def test_new_request_notifies_admins(client, admin, monkeypatch):

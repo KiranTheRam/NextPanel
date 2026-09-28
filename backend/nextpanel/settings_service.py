@@ -27,9 +27,17 @@ DEFAULTS: dict[str, str] = {
     # Undecided requests one non-admin account may have at once, so a single
     # account cannot flood the approval queue. 0 = no limit.
     "max_pending_requests": "25",
+    # ntfy topic URL (e.g. https://ntfy.sh/my-topic) for admin notifications,
+    # an optional access token, and whether completed requests are announced
+    # there too. Empty URL = off.
+    "ntfy_url": "",
+    "ntfy_token": "",
+    "ntfy_notify_available": "false",
+    # Public address of this NextPanel, for tap-to-open links in ntfy messages
+    "public_url": "",
 }
 
-SECRET_KEYS = {"mangarr_api_key", "pullarr_api_key"}
+SECRET_KEYS = {"mangarr_api_key", "pullarr_api_key", "ntfy_token"}
 
 
 def validate(values: dict[str, str]) -> None:
@@ -47,7 +55,11 @@ def validate(values: dict[str, str]) -> None:
             raise ValueError("max_pending_requests must be a whole number") from None
         if limit < 0:
             raise ValueError("max_pending_requests cannot be negative")
-    for key in ("mangarr_url", "pullarr_url"):
+    if values.get("ntfy_url", "").strip():
+        from .ntfy import split_topic_url
+
+        split_topic_url(values["ntfy_url"])
+    for key in ("mangarr_url", "pullarr_url", "public_url"):
         if key in values and values[key] and not values[key].startswith(("http://", "https://")):
             raise ValueError(f"{key} must start with http:// or https://")
     for key in ("mangarr_root_folder_id", "pullarr_root_folder_id"):

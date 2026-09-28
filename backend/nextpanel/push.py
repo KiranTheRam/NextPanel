@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from pywebpush import WebPushException, webpush
 from sqlalchemy import delete, select
 
+from . import ntfy
 from .config import config
 from .db import session_scope
 from .models import MediaType, PushSubscription, User
@@ -131,6 +132,7 @@ async def notify_admins_new_request(username: str, title: str, problem: str = ""
         body,
         url="/requests",
     )
+    await ntfy.notify("New request awaiting approval", body, path="/requests", tags=["inbox_tray"])
 
 
 def _title_url(media_type: MediaType, provider: str, provider_id: int, title: str) -> str:
@@ -168,9 +170,11 @@ async def notify_request_available(
     provider_id: int,
 ) -> None:
     unit = "chapters" if media_type == MediaType.MANGA else "issues"
+    url = _title_url(media_type, provider, provider_id, title)
     await push_to_users(
-        [user_id],
-        f"{title} is available",
-        f"All {count} {unit} are downloaded",
-        url=_title_url(media_type, provider, provider_id, title),
+        [user_id], f"{title} is available", f"All {count} {unit} are downloaded", url=url
+    )
+    await ntfy.notify(
+        f"{title} is available", f"All {count} {unit} are downloaded",
+        path=url, tags=["white_check_mark"], only_if="ntfy_notify_available",
     )
