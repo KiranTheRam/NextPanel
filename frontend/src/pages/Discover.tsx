@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import { titleHref } from "../api/paths";
+import { countOf, titleHref } from "../api/paths";
 import { clearRecentSearches, loadRecentSearches, rememberSearch } from "../api/recentSearches";
 import { useHideInLibrary } from "../api/preferences";
 import type { DiscoverResponse, SearchResponse, SearchResult } from "../api/types";
@@ -154,7 +154,7 @@ function ResultCard({ result, onOpen }: { result: SearchResult; onOpen: () => vo
           {result.status && <span>{result.status.replace(/_/g, " ")}</span>}
           {result.total_count != null && (
             <span>
-              {result.total_count} {result.media_type === "manga" ? "chapters" : "issues"}
+              {countOf(result.total_count, result.media_type)}
             </span>
           )}
           {result.score != null && <span className="discover-score">{result.score}%</span>}

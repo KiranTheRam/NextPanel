@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
+import { countOf } from "../api/paths";
 import type { Chapter, Issue, TitleDetail, User } from "../api/types";
 import { EmptyState, MediaBadge, Spinner, Toolbar } from "../components/common";
 import BackButton from "../components/BackButton";
@@ -72,7 +73,7 @@ function ChapterList({ detail }: { detail: TitleDetail }) {
     return (
       <div className="panel-note">
         {detail.total_count
-          ? `${detail.total_count} ${detail.media_type === "manga" ? "chapters" : "issues"} known to the metadata provider. `
+          ? `${countOf(detail.total_count, detail.media_type)} known to the metadata provider. `
           : ""}
         The full list appears once the series is in your library.
       </div>
@@ -186,7 +187,6 @@ export default function Title({ me }: { me: User }) {
   const displayTitle = data.english_title || data.title;
   const canReport = data.in_library || REPORTABLE.has(data.request_status ?? "");
   const altTitle = data.english_title && data.title !== data.english_title ? data.title : data.native_title;
-  const unitLabel = data.media_type === "manga" ? "chapters" : "issues";
   const years = data.year
     ? `${data.year}${data.end_year && data.end_year !== data.year ? `–${data.end_year}` : ""}`
     : "";
@@ -217,10 +217,12 @@ export default function Title({ me }: { me: User }) {
               {data.score != null && <span className="discover-score">{data.score}%</span>}
               {data.total_count != null && (
                 <span>
-                  {data.total_count} {unitLabel}
+                  {countOf(data.total_count, data.media_type)}
                 </span>
               )}
-              {data.volumes != null && <span>{data.volumes} volumes</span>}
+              {data.volumes != null && (
+                <span>{data.volumes} volume{data.volumes === 1 ? "" : "s"}</span>
+              )}
             </div>
             {data.genres.length > 0 && (
               <div className="genre-row">

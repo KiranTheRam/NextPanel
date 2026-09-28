@@ -202,6 +202,8 @@ async def test_detail_lists_related_manga_recommendations_and_links(client, conf
              "type": "STREAMING", "language": "Spanish"},
             {"site": "VIZ", "url": "https://www.viz.com/dandadan", "type": "STREAMING",
              "language": "English"},
+            {"site": "VIZ", "url": "https://www.viz.com/read/dandadan", "type": "STREAMING",
+             "language": "English"},
             {"site": "Sketchy", "url": "javascript:alert(1)", "type": "INFO"},
         ],
         relations={"edges": [
@@ -229,7 +231,7 @@ async def test_detail_lists_related_manga_recommendations_and_links(client, conf
         {"label": "AniList", "url": "https://anilist.co/manga/101"},
         {"label": "MANGA Plus (English)", "url": "https://mangaplus.shueisha.co.jp/titles/1"},
         {"label": "MANGA Plus (Spanish)", "url": "https://mangaplus.shueisha.co.jp/titles/2"},
-        {"label": "VIZ", "url": "https://www.viz.com/dandadan"},
+        {"label": "VIZ (English)", "url": "https://www.viz.com/dandadan"},
     ]
 
 

@@ -289,12 +289,14 @@ def _https_links(raw: list[dict] | None) -> list[dict[str, str]]:
     links = [(site, url, language) for site, url, language in links
              if site and url.startswith("https://")][:MAX_EXTERNAL_LINKS]
     sites = [site for site, _url, _language in links]
-    # a publisher often has one link per region: tell them apart
-    return [
-        {"label": f"{site} ({language})" if language and sites.count(site) > 1 else site,
-         "url": url}
-        for site, url, language in links
-    ]
+    out: list[dict[str, str]] = []
+    for site, url, language in links:
+        # a publisher often has one link per region: tell them apart, and
+        # show a site only once per language
+        label = f"{site} ({language})" if language and sites.count(site) > 1 else site
+        if all(link["label"] != label for link in out):
+            out.append({"label": label, "url": url})
+    return out
 
 
 def _to_item(media: dict) -> DiscoverItem:
