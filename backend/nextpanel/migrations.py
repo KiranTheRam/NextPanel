@@ -99,9 +99,16 @@ def _v2_request_available_notified(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE requests SET available_notified = 1 WHERE status = 'AVAILABLE'")
 
 
+def _v3_user_auto_approve(conn: sqlite3.Connection) -> None:
+    if "auto_approve" in _columns(conn, "users"):
+        return
+    conn.execute("ALTER TABLE users ADD COLUMN auto_approve BOOLEAN NOT NULL DEFAULT 0")
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _v1_request_uniqueness_includes_provider,
     _v2_request_available_notified,
+    _v3_user_auto_approve,
 ]
 LATEST = len(MIGRATIONS)
 

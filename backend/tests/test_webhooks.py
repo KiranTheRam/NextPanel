@@ -46,7 +46,7 @@ async def test_webhook_advances_status(client, configured):
         headers={"X-Webhook-Secret": "hook-secret"},
     )
     assert resp.status_code == 204
-    listing = (await client.get("/api/v1/requests")).json()
+    listing = (await client.get("/api/v1/requests", params={"scope": "all"})).json()
     row = next(r for r in listing if r["id"] == request_id)
     assert row["status"] == "partially_available"
     assert row["downloaded_count"] == 40
@@ -63,7 +63,7 @@ async def test_webhook_advances_status(client, configured):
         json={"event": "import", "series_id": 77},
         headers={"X-Webhook-Secret": "hook-secret"},
     )
-    listing = (await client.get("/api/v1/requests")).json()
+    listing = (await client.get("/api/v1/requests", params={"scope": "all"})).json()
     assert listing[0]["status"] == "available"
 
     # Ongoing series can gain new chapters after being fully downloaded.
@@ -78,7 +78,7 @@ async def test_webhook_advances_status(client, configured):
         json={"event": "import", "series_id": 77},
         headers={"X-Webhook-Secret": "hook-secret"},
     )
-    listing = (await client.get("/api/v1/requests")).json()
+    listing = (await client.get("/api/v1/requests", params={"scope": "all"})).json()
     assert listing[0]["status"] == "partially_available"
     assert listing[0]["total_count"] == 101
 
@@ -120,7 +120,7 @@ async def test_poll_job_updates_requests(client, configured):
     from nextpanel.status import poll_active_requests
 
     await poll_active_requests()
-    listing = (await client.get("/api/v1/requests")).json()
+    listing = (await client.get("/api/v1/requests", params={"scope": "all"})).json()
     row = next(r for r in listing if r["id"] == request_id)
     assert row["status"] == "available"
 
@@ -135,11 +135,11 @@ async def test_poll_job_updates_requests(client, configured):
     for _ in range(status.AVAILABLE_POLL_EVERY - 1):
         await poll_active_requests()
     assert series.call_count == calls_before
-    listing = (await client.get("/api/v1/requests")).json()
+    listing = (await client.get("/api/v1/requests", params={"scope": "all"})).json()
     assert listing[0]["status"] == "available"
 
     await poll_active_requests()
-    listing = (await client.get("/api/v1/requests")).json()
+    listing = (await client.get("/api/v1/requests", params={"scope": "all"})).json()
     assert listing[0]["status"] == "partially_available"
 
 
@@ -153,7 +153,7 @@ async def test_deleted_remote_series_marks_failed(client, configured):
     from nextpanel.status import poll_active_requests
 
     await poll_active_requests()
-    listing = (await client.get("/api/v1/requests")).json()
+    listing = (await client.get("/api/v1/requests", params={"scope": "all"})).json()
     row = next(r for r in listing if r["id"] == request_id)
     assert row["status"] == "failed"
     assert "removed" in row["note"]
@@ -246,7 +246,7 @@ async def test_poll_reads_each_series_once(client, configured):
     )
     await status.poll_active_requests()
     assert series.call_count == 1
-    listing = (await client.get("/api/v1/requests")).json()
+    listing = (await client.get("/api/v1/requests", params={"scope": "all"})).json()
     assert [r["status"] for r in listing] == ["partially_available"] * 2
 
 
@@ -269,5 +269,5 @@ async def test_poll_reads_series_concurrently_within_the_limit(client, configure
     )
     await status.poll_active_requests()
     assert peak == status.POLL_CONCURRENCY
-    listing = (await client.get("/api/v1/requests")).json()
+    listing = (await client.get("/api/v1/requests", params={"scope": "all"})).json()
     assert {r["status"] for r in listing} == {"available"}

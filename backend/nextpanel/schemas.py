@@ -25,6 +25,7 @@ class UserOut(BaseModel):
     id: int
     username: str
     is_admin: bool
+    auto_approve: bool = False
     created_at: datetime
     request_count: int = 0
     sso_only: bool = False
@@ -34,11 +35,13 @@ class UserCreateIn(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=8, max_length=128)
     is_admin: bool = False
+    auto_approve: bool = False
 
 
 class UserUpdateIn(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=128)
     is_admin: bool | None = None
+    auto_approve: bool | None = None
 
 
 class PasswordChangeIn(BaseModel):

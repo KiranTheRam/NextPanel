@@ -2,10 +2,11 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { Chapter, TitleDetail } from "../api/types";
+import type { Chapter, TitleDetail, User } from "../api/types";
 import { EmptyState, MediaBadge, Spinner, Toolbar } from "../components/common";
 import { CheckIcon, ChevronLeftIcon, SearchIcon } from "../components/icons";
 import RequestButton from "../components/RequestButton";
+import { ApprovalButtons } from "../components/RequestActions";
 
 const SERIES_STATUS: Record<string, { label: string; color: string }> = {
   releasing: { label: "Releasing", color: "green" },
@@ -128,7 +129,7 @@ function BackButton() {
   );
 }
 
-export default function Title() {
+export default function Title({ me }: { me: User }) {
   const { mediaType, provider, providerId } = useParams();
   const [params] = useSearchParams();
   const titleHint = params.get("title") ?? "";
@@ -220,6 +221,13 @@ export default function Title() {
                 inLibrary={data.in_library}
                 requestStatus={data.request_status}
               />
+              {me.is_admin && data.request_id != null && data.request_status && (
+                <ApprovalButtons
+                  requestId={data.request_id}
+                  status={data.request_status}
+                  title={displayTitle}
+                />
+              )}
             </div>
             {data.staff.length > 0 && (
               <div className="title-staff">

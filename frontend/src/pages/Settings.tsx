@@ -220,6 +220,28 @@ export default function Settings() {
         </div>
 
         <div className="settings-section">
+          <h3>Requests</h3>
+          <p className="section-hint">
+            Admins' own requests, and those of users marked Auto-approve on the Users page, go
+            straight to Mangarr or Pullarr. Everyone else's wait for approval.
+          </p>
+          <div className="form-row">
+            <label>Pending limit per user</label>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={form.max_pending_requests ?? ""}
+              onChange={set("max_pending_requests")}
+              style={{ width: 90 }}
+            />
+            <span style={{ color: "var(--text-faint)", fontSize: 13 }}>
+              How many undecided requests one person may have at a time. 0 = no limit.
+            </span>
+          </div>
+        </div>
+
+        <div className="settings-section">
           <h3>Access</h3>
           <p className="section-hint">
             Cloudflare Access SSO is {authStatus?.sso_enabled ? "enabled" : "not configured"}.
@@ -229,6 +251,7 @@ export default function Settings() {
           <div className="form-row">
             <label>Open registration</label>
             <Toggle
+              label="Open registration"
               on={!!authStatus?.local_login_enabled && form.registration_enabled === "true"}
               onChange={setBool("registration_enabled")}
               disabled={!authStatus?.local_login_enabled}

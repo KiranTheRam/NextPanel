@@ -11,7 +11,7 @@ from nextpanel import discover, library
 from nextpanel.arr import MangarrClient
 from nextpanel.discover import _previous_season, _season_start, sections_spec
 
-from .test_requests import make_request
+from .test_requests import make_request, submit_request
 
 
 @pytest.fixture(autouse=True)
@@ -226,7 +226,7 @@ async def test_discover_marks_requested_and_library_titles(client, configured):
     # 101 already requested via anilist; One Piece requested via mangaupdates
     # (matched by title); Berserk in the mangarr library (matched by alt title)
     await make_anilist_request(client, 101, "Dandadan")
-    r = await client.post("/api/v1/requests", json={
+    r = await submit_request(client, {
         "media_type": "manga", "provider": "anilist",
         "provider_id": 101, "title": "Dandadan",
     })
@@ -290,7 +290,7 @@ async def test_discover_library_unreachable_marks_nothing(client, configured):
 
 
 async def make_anilist_request(client, provider_id, title):
-    resp = await client.post("/api/v1/requests", json={
+    resp = await submit_request(client, {
         "media_type": "manga", "provider": "anilist",
         "provider_id": provider_id, "title": title,
     })
@@ -354,7 +354,7 @@ async def test_discover_comic_sections(client, configured):
         ])
     )
     # an existing comic request marks volume 30
-    r = await client.post("/api/v1/requests", json={
+    r = await submit_request(client, {
         "media_type": "comic", "provider": "comicvine",
         "provider_id": 30, "title": "Already Requested",
     })

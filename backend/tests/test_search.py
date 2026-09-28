@@ -2,6 +2,7 @@ import respx
 from httpx import Response
 
 from .conftest import set_settings
+from .test_requests import submit_request
 
 MANGA_RESULT = {
     "provider": "mangaupdates",
@@ -82,7 +83,7 @@ async def test_search_annotates_existing_request(client, configured):
     respx.get("http://mangarr.test/api/v1/search/metadata").mock(
         return_value=Response(200, json=[MANGA_RESULT])
     )
-    resp = await client.post("/api/v1/requests", json={
+    resp = await submit_request(client, {
         "media_type": "manga", "provider": "mangaupdates",
         "provider_id": 111, "title": "One Piece",
     })

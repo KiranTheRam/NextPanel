@@ -15,8 +15,10 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [autoApprove, setAutoApprove] = useState(false);
   const create = useMutation({
-    mutationFn: () => api.post("/users", { username, password, is_admin: isAdmin }),
+    mutationFn: () =>
+      api.post("/users", { username, password, is_admin: isAdmin, auto_approve: autoApprove }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       onClose();
@@ -34,7 +36,16 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
       </div>
       <div className="form-row">
         <label>Admin</label>
-        <Toggle on={isAdmin} onChange={setIsAdmin} />
+        <Toggle label="Admin" on={isAdmin} onChange={setIsAdmin} />
+      </div>
+      <div className="form-row">
+        <label>Auto-approve</label>
+        <Toggle
+          label="Auto-approve requests"
+          on={isAdmin || autoApprove}
+          disabled={isAdmin}
+          onChange={setAutoApprove}
+        />
       </div>
       {create.isError && <div className="error-banner">{(create.error as Error).message}</div>}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
@@ -80,6 +91,12 @@ export default function Users({ me }: { me: User }) {
     onSuccess: invalidate,
     onError,
   });
+  const setAutoApprove = useMutation({
+    mutationFn: ({ id, on }: { id: number; on: boolean }) =>
+      api.put(`/users/${id}`, { auto_approve: on }),
+    onSuccess: invalidate,
+    onError,
+  });
   const remove = useMutation({
     mutationFn: (id: number) => api.del(`/users/${id}`),
     onSuccess: () => { invalidate(); setDeleting(null); },
@@ -120,6 +137,9 @@ export default function Users({ me }: { me: User }) {
               <th>Username</th>
               <th>Requests</th>
               <th>Admin</th>
+              <th title="Requests go straight to Mangarr or Pullarr without waiting for approval">
+                Auto-approve
+              </th>
               <th>Joined</th>
               <th></th>
             </tr>
@@ -137,11 +157,20 @@ export default function Users({ me }: { me: User }) {
                 <td>{u.request_count}</td>
                 <td>
                   <Toggle
+                    label={`${u.username} is an admin`}
                     on={u.is_admin}
                     disabled={u.id === me.id || setAdmin.isPending}
                     onChange={(v) =>
                       u.id !== me.id && setAdmin.mutate({ id: u.id, isAdmin: v })
                     }
+                  />
+                </td>
+                <td title={u.is_admin ? "Admins' own requests are always approved" : undefined}>
+                  <Toggle
+                    label={`Auto-approve ${u.username}'s requests`}
+                    on={u.is_admin || u.auto_approve}
+                    disabled={u.is_admin || setAutoApprove.isPending}
+                    onChange={(v) => setAutoApprove.mutate({ id: u.id, on: v })}
                   />
                 </td>
                 <td style={{ color: "var(--text-dim)" }}>

@@ -121,11 +121,14 @@ def _log_push_errors(task: asyncio.Task) -> None:
         log.warning("push notification task failed", exc_info=task.exception())
 
 
-async def notify_admins_new_request(username: str, title: str) -> None:
+async def notify_admins_new_request(username: str, title: str, problem: str = "") -> None:
+    body = f"{username} requested {title}"
+    if problem:
+        body += f". {problem}"
     await push_to_users(
         await admin_user_ids(),
         "New request awaiting approval",
-        f"{username} requested {title}",
+        body,
         url="/requests",
     )
 

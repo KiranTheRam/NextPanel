@@ -22,7 +22,14 @@ class User(Base):
     username: Mapped[str] = mapped_column(String, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # trusted: this user's requests are approved without waiting in the queue
+    # (admins' own requests always are)
+    auto_approve: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    @property
+    def skips_approval(self) -> bool:
+        return self.is_admin or self.auto_approve
 
     @property
     def sso_only(self) -> bool:

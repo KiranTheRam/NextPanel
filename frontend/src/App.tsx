@@ -58,7 +58,7 @@ export default function App() {
       <div className="main">
         <Routes>
           <Route path="/" element={<Discover />} />
-          <Route path="/title/:mediaType/:provider/:providerId" element={<Title />} />
+          <Route path="/title/:mediaType/:provider/:providerId" element={<Title me={me} />} />
           <Route path="/requests" element={<Requests me={me} />} />
           {me.is_admin && <Route path="/users" element={<Users me={me} />} />}
           {me.is_admin && <Route path="/settings" element={<Settings />} />}

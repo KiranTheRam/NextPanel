@@ -12,6 +12,7 @@ export interface User {
   id: number;
   username: string;
   is_admin: boolean;
+  auto_approve: boolean;
   created_at: string;
   request_count: number;
   sso_only: boolean;

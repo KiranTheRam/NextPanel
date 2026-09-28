@@ -5,9 +5,10 @@ import { api } from "../api/client";
 import { invalidateRequestViews } from "../api/cache";
 import { titleHref } from "../api/paths";
 import type { MediaRequest, MediaType, RequestStatus, User } from "../api/types";
-import { EmptyState, LoadError, MediaBadge, Modal, Spinner, StatusPill, Toolbar } from "../components/common";
+import { ConfirmModal, EmptyState, LoadError, MediaBadge, Spinner, StatusPill, Toolbar } from "../components/common";
 import { CheckIcon, InboxIcon, RefreshIcon, XIcon } from "../components/icons";
 import NotificationsButton from "../components/NotificationsButton";
+import { ApprovalButtons } from "../components/RequestActions";
 
 function Progress({ request }: { request: MediaRequest }) {
   if (!request.total_count) return null;
@@ -15,41 +16,6 @@ function Progress({ request }: { request: MediaRequest }) {
     <span style={{ color: "var(--text-faint)", fontSize: 12 }}>
       {request.downloaded_count}/{request.total_count}
     </span>
-  );
-}
-
-function DenyModal({
-  request,
-  onClose,
-}: {
-  request: MediaRequest;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [reason, setReason] = useState("");
-  const deny = useMutation({
-    mutationFn: () => api.post(`/requests/${request.id}/deny`, { reason }),
-    onSuccess: () => {
-      invalidateRequestViews(queryClient);
-      onClose();
-    },
-  });
-  return (
-    <Modal title={`Deny "${request.title}"`} onClose={onClose}>
-      <div className="form-row">
-        <label>Reason (optional)</label>
-        <input value={reason} onChange={(e) => setReason(e.target.value)} style={{ flex: 1 }} />
-      </div>
-      {deny.isError && <div className="error-banner">{(deny.error as Error).message}</div>}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-        <button className="btn" onClick={onClose}>
-          Cancel
-        </button>
-        <button className="btn danger" onClick={() => deny.mutate()} disabled={deny.isPending}>
-          Deny Request
-        </button>
-      </div>
-    </Modal>
   );
 }
 
@@ -67,7 +33,7 @@ export default function Requests({ me }: { me: User }) {
     queryFn: () => api.get<MediaRequest[]>(`/requests?scope=${scope}`),
     refetchInterval: 15000,
   });
-  const [denying, setDenying] = useState<MediaRequest | null>(null);
+  const [removing, setRemoving] = useState<MediaRequest | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const invalidate = () => {
@@ -76,15 +42,12 @@ export default function Requests({ me }: { me: User }) {
   };
   const onError = (e: unknown) => setActionError((e as Error).message);
 
-  const approve = useMutation({
-    mutationFn: (id: number) => api.post(`/requests/${id}/approve`, {}),
-    onSuccess: invalidate,
-    onError,
-  });
   const withdraw = useMutation({
     mutationFn: (id: number) => api.del(`/requests/${id}`),
-    onSuccess: invalidate,
-    onError,
+    onSuccess: () => {
+      invalidate();
+      setRemoving(null);
+    },
   });
   const refresh = useMutation({
     mutationFn: (id: number) => api.post(`/requests/${id}/refresh`),
@@ -236,21 +199,12 @@ export default function Requests({ me }: { me: User }) {
                     </td>
                     <td className="cell-actions">
                       <div className="request-actions">
-                        {me.is_admin && (r.status === "pending" || r.status === "failed") && (
-                          <>
-                            <button
-                              className="btn primary"
-                              disabled={approve.isPending}
-                              onClick={() => approve.mutate(r.id)}
-                            >
-                              {r.status === "failed" ? "Retry" : "Approve"}
-                            </button>
-                            {r.status === "pending" && (
-                              <button className="btn" onClick={() => setDenying(r)}>
-                                Deny
-                              </button>
-                            )}
-                          </>
+                        {me.is_admin && (
+                          <ApprovalButtons
+                            requestId={r.id}
+                            status={r.status}
+                            title={r.english_title || r.title}
+                          />
                         )}
                         {(r.status === "processing" || r.status === "partially_available" || r.status === "available") && (
                           <button
@@ -268,8 +222,10 @@ export default function Requests({ me }: { me: User }) {
                             className="btn icon-btn"
                             title={me.is_admin ? "Remove request" : "Withdraw request"}
                             aria-label={me.is_admin ? "Remove request" : "Withdraw request"}
-                            disabled={withdraw.isPending}
-                            onClick={() => withdraw.mutate(r.id)}
+                            onClick={() => {
+                              withdraw.reset();
+                              setRemoving(r);
+                            }}
                           >
                             <XIcon size={14} />
                           </button>
@@ -283,7 +239,27 @@ export default function Requests({ me }: { me: User }) {
           </div>
         )}
       </div>
-      {denying && <DenyModal request={denying} onClose={() => setDenying(null)} />}
+      {removing && (
+        <ConfirmModal
+          title={me.is_admin ? "Remove request?" : "Withdraw request?"}
+          confirmLabel={me.is_admin ? "Remove request" : "Withdraw request"}
+          busyLabel={me.is_admin ? "Removing…" : "Withdrawing…"}
+          busy={withdraw.isPending}
+          error={withdraw.isError ? (withdraw.error as Error).message : null}
+          onConfirm={() => withdraw.mutate(removing.id)}
+          onClose={() => setRemoving(null)}
+        >
+          <p>
+            {me.is_admin && removing.username !== me.username
+              ? `This deletes ${removing.username}'s request for `
+              : "This deletes your request for "}
+            <strong>{removing.english_title || removing.title}</strong>.
+            {removing.remote_series_id != null
+              ? " The series stays in your library; remove it there if you no longer want it."
+              : ""}
+          </p>
+        </ConfirmModal>
+      )}
     </>
   );
 }

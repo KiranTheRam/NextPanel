@@ -72,18 +72,57 @@ export function Modal({
   );
 }
 
+/** Ask before an action that cannot be undone. */
+export function ConfirmModal({
+  title,
+  children,
+  confirmLabel,
+  busyLabel,
+  busy = false,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  children: ReactNode;
+  confirmLabel: string;
+  busyLabel?: string;
+  busy?: boolean;
+  error?: string | null;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title={title} onClose={() => { if (!busy) onClose(); }}>
+      {children}
+      {error && <div className="error-banner" role="alert" style={{ marginTop: 12 }}>{error}</div>}
+      <div className="modal-actions">
+        <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn danger" onClick={onConfirm} disabled={busy}>
+          {busy ? busyLabel ?? confirmLabel : confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function Toggle({
   on,
   onChange,
   disabled = false,
+  label,
 }: {
   on: boolean;
   onChange: (v: boolean) => void;
   disabled?: boolean;
+  label?: string;
 }) {
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
       className={`toggle${on ? " on" : ""}`}
       disabled={disabled}
       onClick={() => onChange(!on)}

@@ -24,6 +24,9 @@ DEFAULTS: dict[str, str] = {
     # publicly reachable instance, open registration means anyone can create
     # accounts and submit request spam / burn metadata-API quotas.
     "registration_enabled": "false",
+    # Undecided requests one non-admin account may have at once, so a single
+    # account cannot flood the approval queue. 0 = no limit.
+    "max_pending_requests": "25",
 }
 
 SECRET_KEYS = {"mangarr_api_key", "pullarr_api_key"}
@@ -37,6 +40,13 @@ def validate(values: dict[str, str]) -> None:
             raise ValueError("poll_interval_minutes must be a whole number") from None
         if minutes < 1:
             raise ValueError("poll_interval_minutes must be at least 1")
+    if "max_pending_requests" in values:
+        try:
+            limit = int(values["max_pending_requests"])
+        except (TypeError, ValueError):
+            raise ValueError("max_pending_requests must be a whole number") from None
+        if limit < 0:
+            raise ValueError("max_pending_requests cannot be negative")
     for key in ("mangarr_url", "pullarr_url"):
         if key in values and values[key] and not values[key].startswith(("http://", "https://")):
             raise ValueError(f"{key} must start with http:// or https://")

@@ -16,9 +16,91 @@ from .deps import get_current_user, require_admin
 
 router = APIRouter(prefix="/requests", tags=["requests"])
 
-# per-user cap on undecided requests, so one account can't flood the
-# admin queue on a publicly reachable instance
-MAX_PENDING_PER_USER = 25
+
+class ApprovalError(Exception):
+    """The series could not be added to its app."""
+
+    def __init__(self, status_code: int, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+async def approve(
+    session: AsyncSession,
+    request: Request,
+    decided_by: User,
+    root_folder_id: int | None = None,
+) -> None:
+    """Add the request's series to mangarr/pullarr (adopting it if it is
+    already there) and mark the request processing. The caller commits."""
+    values = await settings_service.get_all(session)
+    client = client_for(request.media_type, values)
+    if root_folder_id is None:
+        default_key = (
+            "mangarr_root_folder_id"
+            if request.media_type == MediaType.MANGA
+            else "pullarr_root_folder_id"
+        )
+        raw = values[default_key].strip()
+        if not raw:
+            raise ApprovalError(
+                422,
+                f"No default root folder configured for {client.app_name} — "
+                "set one in Settings or pass one with the approval",
+            )
+        root_folder_id = int(raw)
+
+    try:
+        remote_id = await client.add_series(
+            request.provider_id,
+            root_folder_id,
+            provider=request.provider,
+            english_title=request.english_title,
+            alt_titles=[t for t in request.alt_titles.split("\n") if t],
+        )
+    except ArrConflict:
+        # already in the app's library — adopt the existing series
+        try:
+            remote_id = await client.find_series_id(request.provider_id, request.provider)
+        except ArrError as exc:
+            raise ApprovalError(502, str(exc)) from exc
+        if remote_id is None:
+            raise ApprovalError(
+                502,
+                f"{client.app_name} reports the series exists but it could not be found",
+            ) from None
+    except ArrError as exc:
+        raise ApprovalError(502, str(exc)) from exc
+
+    invalidate_index(client)
+    request.remote_series_id = remote_id
+    request.status = RequestStatus.PROCESSING
+    request.note = ""
+    request.decided_by_id = decided_by.id
+    # a retried approval is a new fulfillment and completes (and notifies) anew
+    request.available_notified = False
+    # first sync right away so an already-downloaded series shows available
+    await refresh_request(session, request, client)
+
+
+async def _submitted(session: AsyncSession, request: Request, user: User) -> RequestOut:
+    """Route a newly created (or re-asked) request: straight to its app for
+    admins and trusted users, otherwise into the approval queue."""
+    if not user.skips_approval:
+        push.notify_later(push.notify_admins_new_request(user.username, request.title))
+        return _out(await _load(session, request.id))
+    try:
+        await approve(session, request, user)
+    except ApprovalError as exc:
+        # leave it where an admin can retry it, and say why
+        request.status = RequestStatus.FAILED
+        request.note = f"Automatic approval failed: {exc}"
+        if not user.is_admin:
+            push.notify_later(push.notify_admins_new_request(
+                user.username, request.title, problem=request.note
+            ))
+    await session.commit()
+    return _out(await _load(session, request.id))
 
 
 def _out(request: Request) -> RequestOut:
@@ -88,17 +170,21 @@ async def create_request(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    pending_count = (await session.execute(
-        select(func.count(Request.id)).where(
-            Request.user_id == user.id,
-            Request.status == RequestStatus.PENDING,
-        )
-    )).scalar_one()
-    if pending_count >= MAX_PENDING_PER_USER and not user.is_admin:
-        raise HTTPException(
-            429, f"You already have {pending_count} pending requests — "
-            "wait for the admin to review them"
-        )
+    # per-user cap on undecided requests, so one account can't flood the
+    # admin queue on a publicly reachable instance
+    limit = int(await settings_service.get(session, "max_pending_requests") or 0)
+    if limit and not user.is_admin:
+        pending_count = (await session.execute(
+            select(func.count(Request.id)).where(
+                Request.user_id == user.id,
+                Request.status == RequestStatus.PENDING,
+            )
+        )).scalar_one()
+        if pending_count >= limit:
+            raise HTTPException(
+                429, f"You already have {pending_count} pending requests — "
+                "wait for the admin to review them"
+            )
 
     existing = (await session.execute(
         select(Request).where(
@@ -117,8 +203,7 @@ async def create_request(
             existing.decided_by_id = None
             existing.created_at = utcnow()
             await session.commit()
-            push.notify_later(push.notify_admins_new_request(user.username, existing.title))
-            return _out(await _load(session, existing.id))
+            return await _submitted(session, existing, user)
         raise HTTPException(409, "Already requested")
     request = Request(
         user_id=user.id,
@@ -139,8 +224,7 @@ async def create_request(
         # a concurrent request for the same title won the insert
         await session.rollback()
         raise HTTPException(409, "Already requested") from None
-    push.notify_later(push.notify_admins_new_request(user.username, request.title))
-    return _out(await _load(session, request.id))
+    return await _submitted(session, request, user)
 
 
 @router.delete("/{request_id}", status_code=204)
@@ -172,55 +256,10 @@ async def approve_request(
     if request.status not in (RequestStatus.PENDING, RequestStatus.FAILED):
         raise HTTPException(400, f"Request is already {request.status.value}")
 
-    values = await settings_service.get_all(session)
-    client = client_for(request.media_type, values)
-    default_key = (
-        "mangarr_root_folder_id"
-        if request.media_type == MediaType.MANGA
-        else "pullarr_root_folder_id"
-    )
-    root_folder_id = body.root_folder_id
-    if root_folder_id is None:
-        raw = values[default_key].strip()
-        if not raw:
-            raise HTTPException(
-                422,
-                f"No default root folder configured for {client.app_name} — "
-                "set one in Settings or pass one with the approval",
-            )
-        root_folder_id = int(raw)
-
     try:
-        remote_id = await client.add_series(
-            request.provider_id,
-            root_folder_id,
-            provider=request.provider,
-            english_title=request.english_title,
-            alt_titles=[t for t in request.alt_titles.split("\n") if t],
-        )
-    except ArrConflict:
-        # already in the app's library — adopt the existing series
-        try:
-            remote_id = await client.find_series_id(request.provider_id, request.provider)
-        except ArrError as exc:
-            raise HTTPException(502, str(exc)) from exc
-        if remote_id is None:
-            raise HTTPException(
-                502,
-                f"{client.app_name} reports the series exists but it could not be found",
-            ) from None
-    except ArrError as exc:
-        raise HTTPException(502, str(exc)) from exc
-
-    invalidate_index(client)
-    request.remote_series_id = remote_id
-    request.status = RequestStatus.PROCESSING
-    request.note = ""
-    request.decided_by_id = admin.id
-    # a retried approval is a new fulfillment and completes (and notifies) anew
-    request.available_notified = False
-    # first sync right away so an already-downloaded series shows available
-    await refresh_request(session, request, client)
+        await approve(session, request, admin, body.root_folder_id)
+    except ApprovalError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
     await session.commit()
     return _out(await _load(session, request_id))
 

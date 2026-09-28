@@ -10,7 +10,7 @@ from nextpanel.db import session_scope
 from nextpanel.models import PushSubscription
 
 from .conftest import register_user
-from .test_requests import make_request
+from .test_requests import as_requester, make_request
 
 SUB = {
     "endpoint": "https://push.example/send/abc123",
@@ -138,14 +138,11 @@ async def test_deny_notifies_owner(client, configured, monkeypatch):
     await _drain_tasks()
 
     denied = [s for s in sent if s[1] == "Request denied"]
+    owner = (await (await as_requester(client)).get("/api/v1/auth/me")).json()
     assert len(denied) == 1
-    assert denied[0][0] == [admin_id_of(req)] or denied[0][0] == [1]
+    assert denied[0][0] == [owner["id"]]
     assert "already have it" in denied[0][2]
     assert denied[0][3] == "/title/manga/mangaupdates/111?title=One+Piece"
-
-
-def admin_id_of(req):
-    return 1  # the admin fixture is user id 1 and made the request
 
 
 @respx.mock
