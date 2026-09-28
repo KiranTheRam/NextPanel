@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { titleHref } from "../api/paths";
 import type { DiscoverItem } from "../api/types";
 import RequestButton from "./RequestButton";

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router";
 import { api, ApiError } from "./api/client";
 import { pushSupported, syncPushSubscription } from "./api/push";
 import type { User } from "./api/types";

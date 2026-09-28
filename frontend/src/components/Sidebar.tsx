@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router";
 import { api, appVersion } from "../api/client";
 import { pushEndpointForLogout } from "../api/push";
 import type { AuthStatus, RequestSummary, User } from "../api/types";

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { api } from "../api/client";
 import { countOf, titleHref } from "../api/paths";
 import { clearRecentSearches, loadRecentSearches, rememberSearch } from "../api/recentSearches";

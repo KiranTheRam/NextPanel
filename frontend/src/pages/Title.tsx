@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router";
 import { api, ApiError } from "../api/client";
 import { countOf } from "../api/paths";
 import type { Chapter, Issue, TitleDetail, User } from "../api/types";
