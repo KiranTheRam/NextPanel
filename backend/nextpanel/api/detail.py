@@ -15,12 +15,14 @@ from .. import settings_service
 from ..arr import ArrClient, ArrError, MangarrClient, PullarrClient
 from ..db import get_session
 from ..discover import fetch_media
-from ..library import load_index
-from ..models import MediaType
-from ..schemas import ChapterOut, TitleDetailOut
+from ..library import load_index_cached
+from ..models import MediaType, Request
+from ..library import LibraryIndex
+from ..schemas import ChapterOut, LinkOut, TitleCardOut, TitleDetailOut
 from ..security import safe_cover_url
 from .deps import get_current_user
-from .discover import load_request_index
+from .discover import RequestIndex, _annotate, _manga_item_out, load_request_index
+from .search import search_app
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +81,7 @@ async def _from_metadata_search(client: ArrClient, provider_id: int,
     if not title_hint:
         return None
     try:
-        results = await client.search(title_hint)
+        results = await search_app(client, title_hint)
     except ArrError as exc:
         log.warning("detail lookup via %s failed: %s", client.app_name, exc)
         return None
@@ -126,6 +128,69 @@ def _from_anilist(media: dict) -> TitleDetailOut:
     )
 
 
+def _from_request(request: Request) -> TitleDetailOut:
+    """Stored request metadata keeps its detail link useful during outages."""
+    return TitleDetailOut(
+        media_type=request.media_type,
+        provider=request.provider,
+        provider_id=request.provider_id,
+        title=request.title,
+        english_title=request.english_title,
+        description=request.description,
+        year=request.year,
+        cover_url=safe_cover_url(request.cover_url),
+        total_count=request.total_count or None,
+        downloaded_count=request.downloaded_count,
+    )
+
+
+def _base36(number: int) -> str:
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    out = ""
+    while True:
+        number, remainder = divmod(number, 36)
+        out = digits[remainder] + out
+        if not number:
+            return out
+
+
+def _links(provider: str, provider_id: int, series: dict | None,
+           media: dict | None) -> list[LinkOut]:
+    """Where to read more: each metadata site that knows the title, then the
+    official links AniList lists (publishers, legal reading sites)."""
+    ids = {provider: provider_id}
+    for key, site in (("anilist_id", "anilist"), ("mangaupdates_id", "mangaupdates"),
+                      ("comicvine_id", "comicvine")):
+        if series and series.get(key) is not None:
+            ids.setdefault(site, int(series[key]))
+    links = []
+    if "anilist" in ids:
+        links.append(LinkOut(label="AniList", url=f"https://anilist.co/manga/{ids['anilist']}"))
+    if "mangaupdates" in ids:
+        # MangaUpdates' site addresses series by the API id in base 36
+        links.append(LinkOut(
+            label="MangaUpdates",
+            url=f"https://www.mangaupdates.com/series/{_base36(ids['mangaupdates'])}",
+        ))
+    if "comicvine" in ids:
+        links.append(LinkOut(
+            label="ComicVine",
+            url=f"https://comicvine.gamespot.com/volume/4050-{ids['comicvine']}/",
+        ))
+    for link in (media or {}).get("external_links", []):
+        links.append(LinkOut(**link))
+    return links
+
+
+def _cards(items, library: LibraryIndex, requests: RequestIndex) -> list[TitleCardOut]:
+    cards = []
+    for label, item in items:
+        out = _annotate(_manga_item_out(item), item.titles, library, requests)
+        out["subtitle"] = label
+        cards.append(TitleCardOut(**out))
+    return cards
+
+
 @router.get("/{media_type}/{provider}/{provider_id}", response_model=TitleDetailOut)
 async def title_detail(
     media_type: MediaType,
@@ -141,6 +206,7 @@ async def title_detail(
         client = PullarrClient(values["pullarr_url"], values["pullarr_api_key"])
 
     detail: TitleDetailOut | None = None
+    media: dict | None = None
     titles = [t for t in (title,) if t]
 
     # AniList first for manga: it is the richest source and stays available
@@ -156,8 +222,8 @@ async def title_detail(
             detail = _from_anilist(media)
             titles = [t for t in [media["title"], media["english_title"], *media["synonyms"]] if t]
 
-    library = await load_index(client)
-    series = library.find(provider, provider_id, titles)
+    library = await load_index_cached(client, allow_stale=False)
+    series = library.find(provider, provider_id, titles, detail.year if detail else None)
     if series is not None:
         try:
             full = await client.series_detail(int(series["id"]))
@@ -180,17 +246,36 @@ async def title_detail(
                 detail.description = shelved.description
         detail.in_library = True
         detail.library_series_id = int(series["id"])
+        # a series shelved from MangaUpdates may still know its AniList id,
+        # which is where related titles and recommendations come from
+        if media is None and series.get("anilist_id"):
+            try:
+                media = await fetch_media(int(series["anilist_id"]))
+            except Exception as exc:
+                log.warning("AniList relations for %s failed: %s", series["anilist_id"], exc)
 
     if detail is None:
         detail = await _from_metadata_search(client, provider_id, title)
+    requests = await load_request_index(session)
+    if detail is None:
+        saved = requests.find(media_type.value, provider, provider_id, titles)
+        if saved is not None:
+            detail = _from_request(saved)
     if detail is None:
         raise HTTPException(404, "No metadata found for this title")
 
     detail.provider = detail.provider or provider
     detail.provider_id = detail.provider_id or provider_id
-    requests = await load_request_index(session)
-    request = requests.find(media_type.value, provider, provider_id, titles or [detail.title])
+    request = requests.find(
+        media_type.value, provider, provider_id, titles or [detail.title], detail.year
+    )
     if request is not None:
         detail.request_id = request.id
         detail.request_status = request.status
+    detail.links = _links(provider, provider_id, series, media)
+    if media:
+        detail.related = _cards(media["relations"], library, requests)
+        detail.recommendations = _cards(
+            [("", item) for item in media["recommendations"]], library, requests
+        )
     return detail

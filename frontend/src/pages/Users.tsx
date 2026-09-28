@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { AuthStatus, User } from "../api/types";
-import { Modal, Spinner, Toggle, Toolbar } from "../components/common";
+import { LoadError, Modal, Spinner, Toggle, Toolbar } from "../components/common";
 import { KeyIcon, PlusIcon, XIcon } from "../components/icons";
 import {
   ChangePasswordModal,
@@ -15,8 +15,10 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [autoApprove, setAutoApprove] = useState(false);
   const create = useMutation({
-    mutationFn: () => api.post("/users", { username, password, is_admin: isAdmin }),
+    mutationFn: () =>
+      api.post("/users", { username, password, is_admin: isAdmin, auto_approve: autoApprove }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       onClose();
@@ -34,7 +36,16 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
       </div>
       <div className="form-row">
         <label>Admin</label>
-        <Toggle on={isAdmin} onChange={setIsAdmin} />
+        <Toggle label="Admin" on={isAdmin} onChange={setIsAdmin} />
+      </div>
+      <div className="form-row">
+        <label>Auto-approve</label>
+        <Toggle
+          label="Auto-approve requests"
+          on={isAdmin || autoApprove}
+          disabled={isAdmin}
+          onChange={setAutoApprove}
+        />
       </div>
       {create.isError && <div className="error-banner">{(create.error as Error).message}</div>}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
@@ -55,7 +66,7 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
 
 export default function Users({ me }: { me: User }) {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError, refetch } = useQuery({
     queryKey: ["users"],
     queryFn: () => api.get<User[]>("/users"),
   });
@@ -65,6 +76,7 @@ export default function Users({ me }: { me: User }) {
   });
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState<User | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const invalidate = () => {
@@ -79,19 +91,28 @@ export default function Users({ me }: { me: User }) {
     onSuccess: invalidate,
     onError,
   });
-  const remove = useMutation({
-    mutationFn: (id: number) => api.del(`/users/${id}`),
+  const setAutoApprove = useMutation({
+    mutationFn: ({ id, on }: { id: number; on: boolean }) =>
+      api.put(`/users/${id}`, { auto_approve: on }),
     onSuccess: invalidate,
     onError,
   });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.del(`/users/${id}`),
+    onSuccess: () => { invalidate(); setDeleting(null); },
+    onError,
+  });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <>
         <Toolbar title="Users" />
         <Spinner />
       </>
     );
+  }
+  if (!data) {
+    return <><Toolbar title="Users" /><LoadError error={loadError} onRetry={() => refetch()} /></>;
   }
 
   return (
@@ -116,6 +137,9 @@ export default function Users({ me }: { me: User }) {
               <th>Username</th>
               <th>Requests</th>
               <th>Admin</th>
+              <th title="Requests go straight to Mangarr or Pullarr without waiting for approval">
+                Auto-approve
+              </th>
               <th>Joined</th>
               <th></th>
             </tr>
@@ -133,10 +157,20 @@ export default function Users({ me }: { me: User }) {
                 <td>{u.request_count}</td>
                 <td>
                   <Toggle
+                    label={`${u.username} is an admin`}
                     on={u.is_admin}
+                    disabled={u.id === me.id || setAdmin.isPending}
                     onChange={(v) =>
                       u.id !== me.id && setAdmin.mutate({ id: u.id, isAdmin: v })
                     }
+                  />
+                </td>
+                <td title={u.is_admin ? "Admins' own requests are always approved" : undefined}>
+                  <Toggle
+                    label={`Auto-approve ${u.username}'s requests`}
+                    on={u.is_admin || u.auto_approve}
+                    disabled={u.is_admin || setAutoApprove.isPending}
+                    onChange={(v) => setAutoApprove.mutate({ id: u.id, on: v })}
                   />
                 </td>
                 <td style={{ color: "var(--text-dim)" }}>
@@ -158,7 +192,7 @@ export default function Users({ me }: { me: User }) {
                       className="btn icon-btn"
                       title="Delete user"
                       aria-label="Delete user"
-                      onClick={() => remove.mutate(u.id)}
+                      onClick={() => { remove.reset(); setDeleting(u); }}
                     >
                       <XIcon size={14} />
                     </button>
@@ -180,6 +214,18 @@ export default function Users({ me }: { me: User }) {
           username={resetting.username}
           onClose={() => setResetting(null)}
         />
+      )}
+      {deleting && (
+        <Modal title={`Delete ${deleting.username}?`} onClose={() => { if (!remove.isPending) setDeleting(null); }}>
+          <p>This permanently deletes this account and its {deleting.request_count} request{deleting.request_count === 1 ? "" : "s"} from NextPanel. Series already added to Mangarr or Pullarr remain there.</p>
+          {remove.isError && <div className="error-banner" role="alert" style={{ marginTop: 12 }}>{(remove.error as Error).message}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+            <button className="btn" onClick={() => setDeleting(null)} disabled={remove.isPending}>Cancel</button>
+            <button className="btn danger" onClick={() => remove.mutate(deleting.id)} disabled={remove.isPending}>
+              {remove.isPending ? "Deleting…" : "Delete user and requests"}
+            </button>
+          </div>
+        </Modal>
       )}
     </>
   );

@@ -27,6 +27,17 @@ export function Spinner() {
   );
 }
 
+export function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  return (
+    <div className="content">
+      <div className="error-banner" role="alert">
+        Could not load this page: {error instanceof Error ? error.message : "Unknown error"}
+      </div>
+      <button className="btn" onClick={onRetry}>Retry</button>
+    </div>
+  );
+}
+
 export function EmptyState({ icon, title, hint }: { icon: ReactNode; title: string; hint?: string }) {
   return (
     <div className="empty-state">
@@ -61,18 +72,57 @@ export function Modal({
   );
 }
 
+/** Ask before an action that cannot be undone. */
+export function ConfirmModal({
+  title,
+  children,
+  confirmLabel,
+  busyLabel,
+  busy = false,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  children: ReactNode;
+  confirmLabel: string;
+  busyLabel?: string;
+  busy?: boolean;
+  error?: string | null;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title={title} onClose={() => { if (!busy) onClose(); }}>
+      {children}
+      {error && <div className="error-banner" role="alert" style={{ marginTop: 12 }}>{error}</div>}
+      <div className="modal-actions">
+        <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn danger" onClick={onConfirm} disabled={busy}>
+          {busy ? busyLabel ?? confirmLabel : confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function Toggle({
   on,
   onChange,
   disabled = false,
+  label,
 }: {
   on: boolean;
   onChange: (v: boolean) => void;
   disabled?: boolean;
+  label?: string;
 }) {
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
       className={`toggle${on ? " on" : ""}`}
       disabled={disabled}
       onClick={() => onChange(!on)}

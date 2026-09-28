@@ -2,8 +2,8 @@ import asyncio
 import logging
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import func, select
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,8 +11,8 @@ from .. import ratelimit, settings_service
 from ..cloudflare_access import AccessTokenError, verify_access_token
 from ..config import config
 from ..db import get_session
-from ..models import User, UserSession
-from ..schemas import AuthStatusOut, CredentialsIn, PasswordChangeIn, UserOut
+from ..models import PushSubscription, User, UserSession
+from ..schemas import AuthStatusOut, CredentialsIn, LogoutIn, PasswordChangeIn, UserOut
 from ..security import (
     DUMMY_PASSWORD_HASH,
     UNUSABLE_PASSWORD_HASH,
@@ -22,6 +22,7 @@ from ..security import (
     verify_password,
 )
 from .deps import SESSION_COOKIE, _utcnow, get_current_user
+from .push import PUSH_SUBSCRIPTION_COOKIE
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger("nextpanel.auth")
@@ -278,14 +279,34 @@ async def change_password(
 @router.post("/logout", status_code=204)
 async def logout(
     response: Response,
+    body: LogoutIn | None = None,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
+    token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    push_subscription_id: str | None = Cookie(default=None, alias=PUSH_SUBSCRIPTION_COOKIE),
 ):
-    from sqlalchemy import delete
-
-    await session.execute(delete(UserSession).where(UserSession.user_id == user.id))
+    # Remove only this browser's push endpoint. Other signed-in devices keep
+    # their notifications; the browser subscription can be rebound on login.
+    if body and body.push_endpoint:
+        await session.execute(delete(PushSubscription).where(
+            PushSubscription.user_id == user.id,
+            PushSubscription.endpoint == body.push_endpoint,
+        ))
+    if push_subscription_id and push_subscription_id.isdecimal():
+        await session.execute(delete(PushSubscription).where(
+            PushSubscription.user_id == user.id,
+            PushSubscription.id == int(push_subscription_id),
+        ))
+    # Sign out this browser without revoking other active devices. Password
+    # changes and admin resets still deliberately revoke every session.
+    if token:
+        await session.execute(delete(UserSession).where(
+            UserSession.user_id == user.id,
+            UserSession.token == hash_token(token),
+        ))
     await session.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(PUSH_SUBSCRIPTION_COOKIE, path="/")
 
 
 @router.get("/me", response_model=UserOut)

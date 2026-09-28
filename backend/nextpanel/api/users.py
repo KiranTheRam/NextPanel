@@ -40,6 +40,7 @@ async def create_user(body: UserCreateIn, session: AsyncSession = Depends(get_se
         username=username,
         password_hash=hash_password(body.password),
         is_admin=body.is_admin,
+        auto_approve=body.auto_approve,
     )
     session.add(user)
     await session.commit()
@@ -71,6 +72,8 @@ async def update_user(
         if user.id == admin.id and not body.is_admin:
             raise HTTPException(400, "You cannot remove your own admin access")
         user.is_admin = body.is_admin
+    if body.auto_approve is not None:
+        user.auto_approve = body.auto_approve
     await session.commit()
     return user
 

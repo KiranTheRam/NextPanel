@@ -7,7 +7,7 @@ import type {
   RootFolder,
   Settings as SettingsType,
 } from "../api/types";
-import { Spinner, Toggle, Toolbar } from "../components/common";
+import { LoadError, Spinner, Toggle, Toolbar } from "../components/common";
 
 function AppConnection({
   app,
@@ -108,6 +108,99 @@ function AppConnection({
   );
 }
 
+function NtfySettings({
+  form,
+  setForm,
+}: {
+  form: SettingsType;
+  setForm: (f: SettingsType) => void;
+}) {
+  const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm({ ...form, [key]: e.target.value });
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const test = useMutation({
+    mutationFn: () =>
+      api.post<ConnectionTest>("/settings/test/ntfy", {
+        ntfy_url: form.ntfy_url ?? "",
+        ntfy_token: form.ntfy_token ?? "",
+        public_url: form.public_url ?? "",
+      }),
+    onSuccess: (d) => setResult({ ok: d.ok, text: d.message }),
+    onError: (e) => setResult({ ok: false, text: (e as Error).message }),
+  });
+  return (
+    <div className="settings-section">
+      <h3>ntfy</h3>
+      <p className="section-hint">
+        Sends admin notifications (new requests waiting for approval, failed automatic approvals
+        and problem reports) to an ntfy topic, for the ntfy app on your phone or desktop. This is
+        in addition to browser notifications.
+      </p>
+      <div className="form-row">
+        <label>Topic URL</label>
+        <input
+          type="url"
+          placeholder="https://ntfy.sh/your-topic"
+          value={form.ntfy_url ?? ""}
+          onChange={set("ntfy_url")}
+          style={{ minWidth: 300 }}
+        />
+      </div>
+      <div className="form-row">
+        <label>Access token</label>
+        <input
+          type="password"
+          placeholder="Only for protected topics"
+          value={form.ntfy_token ?? ""}
+          onChange={set("ntfy_token")}
+        />
+      </div>
+      <div className="form-row">
+        <label>NextPanel address</label>
+        <input
+          type="url"
+          placeholder={window.location.origin}
+          value={form.public_url ?? ""}
+          onChange={set("public_url")}
+          style={{ minWidth: 300 }}
+        />
+        <button
+          className="btn"
+          type="button"
+          onClick={() => setForm({ ...form, public_url: window.location.origin })}
+        >
+          Use this address
+        </button>
+      </div>
+      <p className="section-hint">
+        Tapping a notification opens this address. Leave it empty for notifications without a link.
+      </p>
+      <div className="form-row">
+        <label>Completed requests</label>
+        <Toggle
+          label="Also announce completed requests"
+          on={form.ntfy_notify_available === "true"}
+          onChange={(v) => setForm({ ...form, ntfy_notify_available: v ? "true" : "false" })}
+        />
+        <span style={{ color: "var(--text-faint)", fontSize: 13 }}>
+          Also send a message when a request finishes downloading.
+        </span>
+      </div>
+      <div className="form-row">
+        <label></label>
+        <button className="btn" type="button" onClick={() => test.mutate()} disabled={test.isPending}>
+          {test.isPending ? "Sending…" : "Send Test"}
+        </button>
+        {result && (
+          <span style={{ fontSize: 13, color: result.ok ? "var(--success)" : "var(--danger)" }}>
+            {result.text}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function randomSecret(): string {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
@@ -116,7 +209,7 @@ function randomSecret(): string {
 
 export default function Settings() {
   const queryClient = useQueryClient();
-  const { data: saved, isLoading } = useQuery({
+  const { data: saved, isLoading, error: loadError, refetch } = useQuery({
     queryKey: ["settings"],
     queryFn: () => api.get<SettingsType>("/settings"),
   });
@@ -139,13 +232,16 @@ export default function Settings() {
     },
   });
 
-  if (isLoading || !saved) {
+  if (isLoading) {
     return (
       <>
         <Toolbar title="Settings" />
         <Spinner />
       </>
     );
+  }
+  if (!saved) {
+    return <><Toolbar title="Settings" /><LoadError error={loadError} onRetry={() => refetch()} /></>;
   }
 
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -216,6 +312,30 @@ export default function Settings() {
           </div>
         </div>
 
+        <NtfySettings form={form} setForm={setForm} />
+
+        <div className="settings-section">
+          <h3>Requests</h3>
+          <p className="section-hint">
+            Admins' own requests, and those of users marked Auto-approve on the Users page, go
+            straight to Mangarr or Pullarr. Everyone else's wait for approval.
+          </p>
+          <div className="form-row">
+            <label>Pending limit per user</label>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={form.max_pending_requests ?? ""}
+              onChange={set("max_pending_requests")}
+              style={{ width: 90 }}
+            />
+            <span style={{ color: "var(--text-faint)", fontSize: 13 }}>
+              How many undecided requests one person may have at a time. 0 = no limit.
+            </span>
+          </div>
+        </div>
+
         <div className="settings-section">
           <h3>Access</h3>
           <p className="section-hint">
@@ -226,6 +346,7 @@ export default function Settings() {
           <div className="form-row">
             <label>Open registration</label>
             <Toggle
+              label="Open registration"
               on={!!authStatus?.local_login_enabled && form.registration_enabled === "true"}
               onChange={setBool("registration_enabled")}
               disabled={!authStatus?.local_login_enabled}

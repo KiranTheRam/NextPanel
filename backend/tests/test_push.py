@@ -10,7 +10,7 @@ from nextpanel.db import session_scope
 from nextpanel.models import PushSubscription
 
 from .conftest import register_user
-from .test_requests import make_request
+from .test_requests import as_requester, make_request
 
 SUB = {
     "endpoint": "https://push.example/send/abc123",
@@ -41,6 +41,38 @@ async def test_subscribe_and_replace(client, admin):
     assert rows == []
 
 
+async def test_logout_removes_only_this_devices_push_subscription(client, admin):
+    assert (await client.post("/api/v1/push/subscribe", json=SUB)).status_code == 204
+    other_subscription = {
+        **SUB,
+        "endpoint": "https://push.example/send/other-device",
+    }
+    from nextpanel.main import app
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as other:
+        assert (await other.post("/api/v1/auth/login", json={
+            "username": "admin", "password": "hunter22"
+        })).status_code == 200
+        assert (await other.post("/api/v1/push/subscribe", json=other_subscription)).status_code == 204
+        assert (await client.post("/api/v1/auth/logout", json={
+            "push_endpoint": SUB["endpoint"]
+        })).status_code == 204
+        assert (await other.get("/api/v1/auth/me")).status_code == 200
+    async with session_scope() as session:
+        rows = (await session.execute(select(PushSubscription))).scalars().all()
+    assert [row.endpoint for row in rows] == [other_subscription["endpoint"]]
+
+
+async def test_logout_cookie_removes_subscription_when_endpoint_unavailable(client, admin):
+    assert (await client.post("/api/v1/push/subscribe", json=SUB)).status_code == 204
+    assert (await client.post("/api/v1/auth/logout")).status_code == 204
+    async with session_scope() as session:
+        rows = (await session.execute(select(PushSubscription))).scalars().all()
+    assert rows == []
+
+
 async def test_existing_device_subscription_moves_to_current_user(client, admin):
     assert (await client.post("/api/v1/push/subscribe", json=SUB)).status_code == 204
 
@@ -64,9 +96,10 @@ async def test_push_requires_login(client):
 
 
 async def _drain_tasks():
-    # let notify_later fire-and-forget tasks run
-    for _ in range(3):
-        await asyncio.sleep(0.02)
+    # wait for notify_later's fire-and-forget sends to finish
+    await asyncio.sleep(0)
+    while push._pending_sends:
+        await asyncio.gather(*list(push._pending_sends), return_exceptions=True)
 
 
 async def test_new_request_notifies_admins(client, admin, monkeypatch):
@@ -106,14 +139,11 @@ async def test_deny_notifies_owner(client, configured, monkeypatch):
     await _drain_tasks()
 
     denied = [s for s in sent if s[1] == "Request denied"]
+    owner = (await (await as_requester(client)).get("/api/v1/auth/me")).json()
     assert len(denied) == 1
-    assert denied[0][0] == [admin_id_of(req)] or denied[0][0] == [1]
+    assert denied[0][0] == [owner["id"]]
     assert "already have it" in denied[0][2]
     assert denied[0][3] == "/title/manga/mangaupdates/111?title=One+Piece"
-
-
-def admin_id_of(req):
-    return 1  # the admin fixture is user id 1 and made the request
 
 
 @respx.mock
@@ -157,3 +187,16 @@ async def test_gone_subscription_pruned(client, admin, monkeypatch):
     async with session_scope() as session:
         rows = (await session.execute(select(PushSubscription))).scalars().all()
     assert rows == []
+
+
+async def test_notify_later_holds_the_send_until_it_finishes():
+    release = asyncio.Event()
+
+    async def send():
+        await release.wait()
+
+    push.notify_later(send())
+    assert len(push._pending_sends) == 1
+    release.set()
+    await _drain_tasks()
+    assert not push._pending_sends

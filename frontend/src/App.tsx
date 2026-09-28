@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router";
 import { api, ApiError } from "./api/client";
 import { pushSupported, syncPushSubscription } from "./api/push";
 import type { User } from "./api/types";
 import { Spinner } from "./components/common";
 import Sidebar from "./components/Sidebar";
+import Browse from "./pages/Browse";
 import Discover from "./pages/Discover";
 import Login from "./pages/Login";
 import Requests from "./pages/Requests";
@@ -22,8 +23,8 @@ export default function App() {
 
   useEffect(() => {
     if (!me || !pushSupported()) return;
-    // Push endpoints survive logout, so make sure an existing endpoint follows
-    // the authenticated user after an account or SSO identity change.
+    // The browser subscription survives logout; rebind it to the newly
+    // authenticated user after an account or SSO identity change.
     syncPushSubscription().catch(() => {
       // Delivery failures remain visible through the notification control;
       // they should not prevent the application from loading.
@@ -58,7 +59,8 @@ export default function App() {
       <div className="main">
         <Routes>
           <Route path="/" element={<Discover />} />
-          <Route path="/title/:mediaType/:provider/:providerId" element={<Title />} />
+          <Route path="/browse/:source" element={<Browse />} />
+          <Route path="/title/:mediaType/:provider/:providerId" element={<Title me={me} />} />
           <Route path="/requests" element={<Requests me={me} />} />
           {me.is_admin && <Route path="/users" element={<Users me={me} />} />}
           {me.is_admin && <Route path="/settings" element={<Settings />} />}

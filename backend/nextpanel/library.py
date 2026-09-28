@@ -30,17 +30,38 @@ class LibraryIndex:
     """Series keyed by every id and title they can be recognised by."""
 
     by_provider_id: dict[tuple[str, int], dict[str, Any]] = field(default_factory=dict)
-    by_title: dict[str, dict[str, Any]] = field(default_factory=dict)
+    by_title: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # the library could not be read; matches are unknown rather than absent
     available: bool = True
 
-    def find(self, provider: str, provider_id: int, titles: list[str]) -> dict[str, Any] | None:
+    def find(self, provider: str, provider_id: int, titles: list[str],
+             year: int | None = None) -> dict[str, Any] | None:
         series = self.by_provider_id.get((provider, provider_id))
         if series is not None:
             return series
+        # ComicVine is the only comic provider. A different volume id with the
+        # same name is a different series, regardless of its displayed title.
+        if provider == "comicvine":
+            return None
+        # A title without a year is only a hint, not enough to claim a
+        # cross-provider match or block a request for another edition.
+        if year is None:
+            return None
+        id_key = {"anilist": "anilist_id", "mangaupdates": "mangaupdates_id"}.get(provider)
         for title in titles:
-            if title and (series := self.by_title.get(normalize_title(title))):
-                return series
+            if not title:
+                continue
+            candidates = []
+            for candidate in self.by_title.get(normalize_title(title), []):
+                known_id = candidate.get(id_key) if id_key else None
+                if known_id is not None and int(known_id) != provider_id:
+                    continue
+                known_year = candidate.get("year")
+                if known_year is None or str(known_year) != str(year):
+                    continue
+                candidates.append(candidate)
+            if len(candidates) == 1:
+                return candidates[0]
         return None
 
 
@@ -56,9 +77,9 @@ def _index(series_list: list[dict[str, Any]], id_keys: dict[str, str],
             value = series.get(key) or ""
             # mangarr stores alt titles newline-joined in a single column
             names.extend(value.split("\n") if key == "alt_titles" else [value])
-        for name in names:
-            if name and (n := normalize_title(name)):
-                index.by_title.setdefault(n, series)
+        for n in {normalize_title(name) for name in names if name}:
+            if n:
+                index.by_title.setdefault(n, []).append(series)
     return index
 
 
@@ -114,12 +135,14 @@ async def _refresh_index(
                 _index_inflight.pop(key, None)
 
 
-async def load_index_cached(client: ArrClient) -> LibraryIndex:
-    """Return a coalesced, briefly cached library index for discovery.
+async def load_index_cached(client: ArrClient, *, allow_stale: bool = True) -> LibraryIndex:
+    """Return a coalesced, briefly cached library index.
 
-    Fresh snapshots are returned directly. Expired snapshots are returned
-    immediately while one background refresh runs. Only the very first read
-    waits for the target app.
+    Fresh snapshots are returned directly. With `allow_stale`, an expired
+    snapshot is returned immediately while one background refresh runs, so
+    only the very first read waits for the target app. Without it (the title
+    page, which must not miss a series added since), an expired snapshot
+    waits for the shared refresh instead.
     """
     if not client.configured:
         return LibraryIndex(available=False)
@@ -135,11 +158,16 @@ async def load_index_cached(client: ArrClient) -> LibraryIndex:
             task = asyncio.create_task(_refresh_index(key, client))
             _index_inflight[key] = task
 
-        if cached:
+        if cached and allow_stale:
             return cached[1]
 
     # Do not let one disconnected browser cancel the shared cold-cache load.
     return await asyncio.shield(task)
+
+
+def invalidate_index(client: ArrClient) -> None:
+    """Forget the snapshot after changing the library (e.g. adding a series)."""
+    _index_cache.pop(_index_cache_key(client), None)
 
 
 def clear_index_cache() -> None:

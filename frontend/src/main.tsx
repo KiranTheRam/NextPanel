@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router";
 import App from "./App";
 import { initClient } from "./api/client";
 import { disablePageZoom } from "./nozoom";
@@ -38,10 +38,14 @@ initClient()
     );
   })
   .catch((err) => {
-    const message = err instanceof Error ? err.message : String(err);
+    // the service worker opens the cached app shell when there is no network
+    const offline = !navigator.onLine;
+    const message = offline
+      ? "Reconnect to the internet and reopen NextPanel."
+      : err instanceof Error ? err.message : String(err);
     ReactDOM.createRoot(rootEl).render(
       <div style={{ padding: 40, fontFamily: "sans-serif", color: "#e1e2e6" }}>
-        <h2>NextPanel backend unreachable</h2>
+        <h2>{offline ? "You're offline" : "NextPanel backend unreachable"}</h2>
         <p>{message}</p>
       </div>,
     );

@@ -34,7 +34,7 @@ via webhooks from both apps (with scheduled polling as a fallback).
   ComicVine via pullarr's key: New Comics This Week and New Comic Series This
   Month (ComicVine has no popularity data, so comic discovery is recency-based
   — issues by store date, `#1`s marking new series). Anything already in a
-  library (matched by provider id or title) or already requested stays visible
+  library (matched by provider id or matching title and year) or already requested stays visible
   with its current state, and every other card is one tap to request. The
   independent provider and library reads run concurrently; AniList results
   are cached for 30 minutes and ComicVine results for 6 hours inside pullarr
@@ -49,7 +49,9 @@ via webhooks from both apps (with scheduled polling as a fallback).
   already in the app's library, the request adopts it instead of failing.
 - **Live availability** — mangarr/pullarr fire a webhook at NextPanel on every
   import; requests show downloaded/total progress and flip to Available when
-  complete. A poll job (default: every 10 min) covers missed webhooks.
+  complete. A poll job (default: every 10 min) covers missed webhooks;
+  completed series are rechecked on every sixth poll to catch newly announced
+  chapters.
 - **Same stack as its siblings** — FastAPI + SQLite backend, React/Vite
   frontend, one Docker image.
 
@@ -87,7 +89,8 @@ tab bar, no input auto-zoom, safe-area aware):
 - **Push notifications**: on the **Requests** page, tap the bell button
   ("Notifications") and allow the permission. Admins are notified when a new
   request needs approval; users are notified when their request becomes
-  available or is denied. Each device that should get notifications enables
+  available (once per approval, not again for each new chapter of an ongoing
+  series) or is denied. Each device that should get notifications enables
   the bell once while signed in.
 - **iOS note**: Apple only allows web push for PWAs that are installed to the
   home screen (iOS 16.4+), so add NextPanel to the home screen first — the
@@ -158,6 +161,11 @@ Environment variables (all optional):
 
 Everything else (app URLs/keys, root folders, webhook secret, poll interval,
 registration) lives in the UI under Settings and is stored in the DB.
+
+The database uses SQLite's WAL mode, so keep the data dir on local storage
+rather than an NFS/SMB share. When a new release changes the schema,
+NextPanel upgrades the database in place at startup and first saves a copy
+next to it as `nextpanel-v<N>-backup.db`.
 
 ## Cloudflare Zero Trust SSO
 

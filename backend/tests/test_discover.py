@@ -3,6 +3,7 @@ import json
 import time
 from datetime import date
 
+import httpx
 import pytest
 import respx
 from httpx import Response
@@ -11,7 +12,7 @@ from nextpanel import discover, library
 from nextpanel.arr import MangarrClient
 from nextpanel.discover import _previous_season, _season_start, sections_spec
 
-from .test_requests import make_request
+from .test_requests import as_requester, make_request, submit_request
 
 
 @pytest.fixture(autouse=True)
@@ -190,6 +191,26 @@ async def test_concurrent_section_library_reads_are_coalesced():
 
 
 @respx.mock
+async def test_expired_library_snapshot_is_only_served_when_stale_is_allowed():
+    route = respx.get("http://mangarr.test/api/v1/series").mock(side_effect=[
+        Response(200, json=[]),
+        Response(200, json=[{"id": 7, "anilist_id": 101, "title": "Dandadan"}]),
+    ])
+    client = MangarrClient("http://mangarr.test", "manga-key")
+    assert (await library.load_index_cached(client)).by_provider_id == {}
+
+    # age the snapshot past its TTL
+    key = library._index_cache_key(client)
+    fetched_at, index = library._index_cache[key]
+    library._index_cache[key] = (fetched_at - library.INDEX_CACHE_TTL_SECONDS - 1, index)
+
+    # the title page waits for the refresh instead of missing a new series
+    fresh = await library.load_index_cached(client, allow_stale=False)
+    assert ("anilist", 101) in fresh.by_provider_id
+    assert route.call_count == 2
+
+
+@respx.mock
 async def test_discover_marks_requested_and_library_titles(client, configured):
     respx.get("http://pullarr.test/api/v1/discover/releases").mock(
         return_value=Response(200, json=[])
@@ -206,17 +227,18 @@ async def test_discover_marks_requested_and_library_titles(client, configured):
     # 101 already requested via anilist; One Piece requested via mangaupdates
     # (matched by title); Berserk in the mangarr library (matched by alt title)
     await make_anilist_request(client, 101, "Dandadan")
-    r = await client.post("/api/v1/requests", json={
+    r = await submit_request(client, {
         "media_type": "manga", "provider": "anilist",
         "provider_id": 101, "title": "Dandadan",
     })
     assert r.status_code == 409  # sanity: dedupe by provider works
-    await make_request(client, provider_id=999, media_type="manga")  # "One Piece"
+    await make_request(client, provider_id=999, media_type="manga", year=2026)  # "One Piece"
 
     respx.get("http://mangarr.test/api/v1/series").mock(
         return_value=Response(200, json=[{
             "id": 9, "anilist_id": None, "mangaupdates_id": 555,
             "title": "Berserker", "english_title": "", "alt_titles": "Berserk\nベルセルク",
+            "year": 2026,
         }])
     )
     data = (await client.get("/api/v1/discover")).json()
@@ -246,7 +268,7 @@ async def test_discover_matches_library_by_anilist_synonym(client, configured):
     respx.get("http://mangarr.test/api/v1/series").mock(
         return_value=Response(200, json=[{
             "id": 3, "anilist_id": None, "mangaupdates_id": 8517620677,
-            "title": "Blue Box", "english_title": "", "alt_titles": "",
+            "title": "Blue Box", "english_title": "", "alt_titles": "", "year": 2026,
         }])
     )
     data = (await client.get("/api/v1/discover")).json()
@@ -269,7 +291,7 @@ async def test_discover_library_unreachable_marks_nothing(client, configured):
 
 
 async def make_anilist_request(client, provider_id, title):
-    resp = await client.post("/api/v1/requests", json={
+    resp = await submit_request(client, {
         "media_type": "manga", "provider": "anilist",
         "provider_id": provider_id, "title": title,
     })
@@ -333,7 +355,7 @@ async def test_discover_comic_sections(client, configured):
         ])
     )
     # an existing comic request marks volume 30
-    r = await client.post("/api/v1/requests", json={
+    r = await submit_request(client, {
         "media_type": "comic", "provider": "comicvine",
         "provider_id": 30, "title": "Already Requested",
     })
@@ -385,3 +407,183 @@ async def test_discover_cached_between_calls(client, admin):
     first = route.call_count
     await client.get("/api/v1/discover")
     assert route.call_count == first  # served from cache
+
+
+def browse_page(*media, has_next=False):
+    return Response(200, json={"data": {"Page": {
+        "pageInfo": {"hasNextPage": has_next}, "media": list(media),
+    }}})
+
+
+@respx.mock
+async def test_see_all_pages_through_a_manhwa_row(client, configured):
+    route = respx.post("https://graphql.anilist.co").mock(return_value=browse_page(
+        anilist_media(1, "Solo Leveling", country="KR"), has_next=True,
+    ))
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    data = (await client.get("/api/v1/discover/browse", params={
+        "source": "trending", "origin": "manhwa", "page": 2,
+    })).json()
+    assert data["title"] == "Trending Manhwa"
+    assert [i["provider_id"] for i in data["items"]] == [1]
+    assert data["has_more"] is True
+    variables = json.loads(route.calls.last.request.content)["variables"]
+    assert variables["page"] == 2 and variables["perPage"] == 40
+    assert variables["country"] == "KR" and "genre" not in variables
+    assert variables["sort"] == ["TRENDING_DESC"]
+
+
+@respx.mock
+async def test_see_all_manga_leaves_out_manhwa(client, configured):
+    respx.post("https://graphql.anilist.co").mock(return_value=browse_page(
+        anilist_media(1, "Solo Leveling", country="KR"),
+        anilist_media(2, "Dandadan"),
+    ))
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    data = (await client.get("/api/v1/discover/browse", params={
+        "source": "all_time", "origin": "manga",
+    })).json()
+    assert data["title"] == "All-Time Manga Favorites"
+    assert [i["provider_id"] for i in data["items"]] == [2]
+    assert data["has_more"] is False
+
+
+@respx.mock
+async def test_genre_browse(client, configured):
+    route = respx.post("https://graphql.anilist.co").mock(return_value=browse_page(
+        anilist_media(2, "Dandadan"),
+    ))
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    assert "Romance" in (await client.get("/api/v1/discover/genres")).json()
+    assert "Hentai" not in (await client.get("/api/v1/discover/genres")).json()
+
+    data = (await client.get("/api/v1/discover/browse", params={
+        "source": "genre", "genre": "Romance",
+    })).json()
+    assert data["title"] == "Romance Manga & Manhwa"
+    variables = json.loads(route.calls.last.request.content)["variables"]
+    # AniList treats a null country as a filter, so it must be absent
+    assert variables["genre"] == "Romance" and "country" not in variables
+
+    missing = await client.get("/api/v1/discover/browse", params={
+        "source": "genre", "genre": "Hentai",
+    })
+    assert missing.status_code == 404
+
+
+@respx.mock
+async def test_see_all_comics_lists_the_whole_window(client, configured):
+    respx.get("http://pullarr.test/api/v1/discover/releases").mock(return_value=Response(
+        200, json=[comic_entry(n, f"Volume {n}") for n in range(1, 31)]
+    ))
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    data = (await client.get("/api/v1/discover/browse", params={"source": "comics_week"})).json()
+    assert data["title"] == "New Comics This Week"
+    assert len(data["items"]) == 30  # rows stop at 20
+    assert data["has_more"] is False
+
+
+def recommendations_for(seed_id, *recommended):
+    return Response(200, json={"data": {"Media": {
+        "id": seed_id, "title": {"romaji": "Seed", "english": None, "native": None},
+        "synonyms": [], "description": "", "coverImage": {}, "startDate": {"year": 2020},
+        "endDate": {}, "status": "RELEASING", "format": "MANGA", "genres": [],
+        "staff": {"edges": []}, "relations": {"edges": []},
+        "recommendations": {"nodes": [
+            {"mediaRecommendation": {**anilist_media(m, f"Rec {m}"), "type": "MANGA",
+                                     "format": "MANGA", "isAdult": False}}
+            for m in recommended
+        ]},
+    }}})
+
+
+@respx.mock
+async def test_because_you_requested_row_follows_your_latest_request(client, configured):
+    route = respx.post("https://graphql.anilist.co").mock(
+        return_value=recommendations_for(101, 101, 202, 303)
+    )
+    respx.get("http://mangarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    assert (await client.get("/api/v1/discover/sections/because")).json()["sections"] == []
+
+    await make_anilist_request(client, 101, "Dandadan")  # as the requester
+    requester = await as_requester(client)
+    data = (await requester.get("/api/v1/discover/sections/because")).json()
+    [section] = data["sections"]
+    assert section["title"] == "Because you requested Dandadan"
+    assert [i["provider_id"] for i in section["items"]] == [202, 303]  # not the seed
+    assert json.loads(route.calls.last.request.content)["variables"] == {"id": 101}
+
+    # the admin has requested nothing, so has no such row
+    assert (await client.get("/api/v1/discover/sections/because")).json()["sections"] == []
+
+
+def comic_releases(*entries):
+    return Response(200, json=list(entries))
+
+
+@respx.mock
+async def test_slow_comic_row_finishes_in_the_background(client, configured, monkeypatch):
+    from nextpanel.api import discover as discover_api
+
+    monkeypatch.setattr(discover_api, "COMIC_FETCH_TIMEOUT_SECONDS", 0.05)
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+
+    async def cold_pullarr(request):
+        await asyncio.sleep(0.3)  # pullarr's first, rate-limited ComicVine load
+        return comic_releases(comic_entry(10, "Batman (2026)"))
+
+    releases = respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        side_effect=cold_pullarr
+    )
+    first = (await client.get("/api/v1/discover/sections/comics_week")).json()
+    assert first["sections"] == []
+    assert first["errors"] == {
+        "comics_week": "New releases are still loading from ComicVine — try again in a minute"
+    }
+
+    # the page stopped waiting, but the load was not abandoned
+    await asyncio.gather(*discover._inflight.values())
+    second = (await client.get("/api/v1/discover/sections/comics_week")).json()
+    assert second["errors"] == {}
+    assert [i["title"] for i in second["sections"][0]["items"]] == ["Batman (2026)"]
+    assert releases.call_count == 1
+
+
+@respx.mock
+async def test_comic_rows_are_cached_and_given_time(client, configured):
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    releases = respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        return_value=comic_releases(comic_entry(10, "Batman (2026)"))
+    )
+    for _ in range(3):
+        data = (await client.get("/api/v1/discover/sections/comics_week")).json()
+        assert data["errors"] == {} and len(data["sections"]) == 1
+    assert releases.call_count == 1
+    # a cold pullarr load takes ~20 s; the request must not give up at 30
+    assert releases.calls.last.request.extensions["timeout"]["read"] == 120.0
+
+
+@respx.mock
+async def test_comic_rows_are_warmed_at_startup(client, configured):
+    from nextpanel.api.discover import warm_comic_rows
+
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    releases = respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        return_value=comic_releases(comic_entry(10, "Batman (2026)"))
+    )
+    await warm_comic_rows()
+    assert releases.call_count == 2  # both comic rows
+    for key in ("comics_week", "comics_new_series"):
+        data = (await client.get(f"/api/v1/discover/sections/{key}")).json()
+        assert data["sections"][0]["items"][0]["title"] == "Batman (2026)"
+    assert releases.call_count == 2
+
+
+@respx.mock
+async def test_unreachable_pullarr_is_reported(client, configured):
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        side_effect=httpx.ConnectError("refused")
+    )
+    data = (await client.get("/api/v1/discover/sections/comics_week")).json()
+    assert data["errors"] == {"comics_week": "pullarr could not be reached"}

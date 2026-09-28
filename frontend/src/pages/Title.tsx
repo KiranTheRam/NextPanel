@@ -1,11 +1,16 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router";
 import { api, ApiError } from "../api/client";
-import type { Chapter, TitleDetail } from "../api/types";
+import { countOf } from "../api/paths";
+import type { Chapter, Issue, TitleDetail, User } from "../api/types";
 import { EmptyState, MediaBadge, Spinner, Toolbar } from "../components/common";
-import { CheckIcon, ChevronLeftIcon, SearchIcon } from "../components/icons";
+import BackButton from "../components/BackButton";
+import { CheckIcon, SearchIcon } from "../components/icons";
 import RequestButton from "../components/RequestButton";
+import { ApprovalButtons } from "../components/RequestActions";
+import { IssueActions, IssueStatusPill, ReportIssueModal, issueKindLabel } from "../components/Issues";
+import { TitleRow } from "../components/TitleCard";
 
 const SERIES_STATUS: Record<string, { label: string; color: string }> = {
   releasing: { label: "Releasing", color: "green" },
@@ -68,7 +73,7 @@ function ChapterList({ detail }: { detail: TitleDetail }) {
     return (
       <div className="panel-note">
         {detail.total_count
-          ? `${detail.total_count} ${detail.media_type === "manga" ? "chapters" : "issues"} known to the metadata provider. `
+          ? `${countOf(detail.total_count, detail.media_type)} known to the metadata provider. `
           : ""}
         The full list appears once the series is in your library.
       </div>
@@ -106,29 +111,47 @@ function ChapterList({ detail }: { detail: TitleDetail }) {
   );
 }
 
-/**
- * Back to wherever you came from — search results, a discover row, or the
- * requests list — rather than always to the Discover home. Opening a title
- * from a cold link has nothing to go back to, so that case falls through to
- * Discover instead of leaving the app.
- */
-function BackButton() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  // react-router stamps an index onto history entries it created; index 0 (or
-  // a missing one) means this entry is the first of the session
-  const historyIndex = (window.history.state as { idx?: number } | null)?.idx ?? 0;
-  const canGoBack = historyIndex > 0 && location.key !== "default";
-
+/** Open problem reports about this title: all of them for admins, your own
+ * otherwise. */
+function TitleIssues({ detail, me }: { detail: TitleDetail; me: User }) {
+  const params = new URLSearchParams({
+    scope: me.is_admin ? "all" : "mine",
+    status: "open",
+    media_type: detail.media_type,
+    provider: detail.provider,
+    provider_id: String(detail.provider_id),
+  });
+  const { data } = useQuery({
+    queryKey: ["issues", "title", params.toString()],
+    queryFn: () => api.get<Issue[]>(`/issues?${params}`),
+  });
+  if (!data?.length) return null;
   return (
-    <button className="btn" onClick={() => (canGoBack ? navigate(-1) : navigate("/"))}>
-      <ChevronLeftIcon size={15} />
-      Back
-    </button>
+    <div className="panel">
+      <h3>Reported problems</h3>
+      <ul className="issue-list">
+        {data.map((issue) => (
+          <li key={issue.id}>
+            <div className="issue-head">
+              <IssueStatusPill issue={issue} />
+              <strong>{issueKindLabel(issue.kind)}</strong>
+              <span className="issue-meta">
+                {me.is_admin ? `${issue.username} · ` : ""}
+                {new Date(issue.created_at).toLocaleDateString()}
+              </span>
+            </div>
+            {issue.message && <p className="issue-message">{issue.message}</p>}
+            <IssueActions issue={issue} me={me} />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
-export default function Title() {
+const REPORTABLE = new Set(["processing", "partially_available", "available"]);
+
+export default function Title({ me }: { me: User }) {
   const { mediaType, provider, providerId } = useParams();
   const [params] = useSearchParams();
   const titleHint = params.get("title") ?? "";
@@ -141,6 +164,7 @@ export default function Title() {
       ),
     retry: false,
   });
+  const [reporting, setReporting] = useState(false);
 
   if (isLoading) return <Spinner />;
   if (!data) {
@@ -161,8 +185,8 @@ export default function Title() {
   }
 
   const displayTitle = data.english_title || data.title;
+  const canReport = data.in_library || REPORTABLE.has(data.request_status ?? "");
   const altTitle = data.english_title && data.title !== data.english_title ? data.title : data.native_title;
-  const unitLabel = data.media_type === "manga" ? "chapters" : "issues";
   const years = data.year
     ? `${data.year}${data.end_year && data.end_year !== data.year ? `–${data.end_year}` : ""}`
     : "";
@@ -193,10 +217,12 @@ export default function Title() {
               {data.score != null && <span className="discover-score">{data.score}%</span>}
               {data.total_count != null && (
                 <span>
-                  {data.total_count} {unitLabel}
+                  {countOf(data.total_count, data.media_type)}
                 </span>
               )}
-              {data.volumes != null && <span>{data.volumes} volumes</span>}
+              {data.volumes != null && (
+                <span>{data.volumes} volume{data.volumes === 1 ? "" : "s"}</span>
+              )}
             </div>
             {data.genres.length > 0 && (
               <div className="genre-row">
@@ -220,6 +246,18 @@ export default function Title() {
                 inLibrary={data.in_library}
                 requestStatus={data.request_status}
               />
+              {me.is_admin && data.request_id != null && data.request_status && (
+                <ApprovalButtons
+                  requestId={data.request_id}
+                  status={data.request_status}
+                  title={displayTitle}
+                />
+              )}
+              {canReport && (
+                <button className="btn" onClick={() => setReporting(true)}>
+                  Report a problem
+                </button>
+              )}
             </div>
             {data.staff.length > 0 && (
               <div className="title-staff">
@@ -228,6 +266,21 @@ export default function Title() {
                     <strong>{s.name}</strong>
                     {s.role ? ` — ${s.role}` : ""}
                   </span>
+                ))}
+              </div>
+            )}
+            {data.links.length > 0 && (
+              <div className="title-links" aria-label="Elsewhere">
+                {data.links.map((link) => (
+                  <a
+                    key={link.url}
+                    className="btn sm"
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {link.label} ↗
+                  </a>
                 ))}
               </div>
             )}
@@ -241,11 +294,29 @@ export default function Title() {
           </div>
         )}
 
+        <TitleIssues detail={data} me={me} />
+
         <div className="panel">
           <h3>{data.media_type === "manga" ? "Chapters" : "Issues"}</h3>
           <ChapterList detail={data} />
         </div>
+
+        <TitleRow title="Related" items={data.related} />
+        <TitleRow title="You might also like" items={data.recommendations} />
       </div>
+      {reporting && (
+        <ReportIssueModal
+          subject={{
+            media_type: data.media_type,
+            provider: data.provider,
+            provider_id: data.provider_id,
+            title: displayTitle,
+            cover_url: data.cover_url,
+          }}
+          displayTitle={displayTitle}
+          onClose={() => setReporting(false)}
+        />
+      )}
     </>
   );
 }

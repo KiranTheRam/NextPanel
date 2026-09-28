@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import settings_service
+from .. import ntfy, settings_service
 from ..arr import ArrError, client_by_app
 from ..db import get_session
 from ..schemas import ConnectionTestOut
@@ -53,6 +53,25 @@ async def _client_with_overrides(
     if client is None:
         raise HTTPException(404, "Unknown app")
     return client
+
+
+@router.post("/test/ntfy", response_model=ConnectionTestOut)
+async def test_ntfy(body: dict[str, str], session: AsyncSession = Depends(get_session)):
+    """Publish a test message using the form's (possibly unsaved) values."""
+    values = await settings_service.get_all(session)
+    for key in ("ntfy_url", "ntfy_token", "public_url"):
+        if key in body and body[key] != MASK:
+            values[key] = body[key]
+    if not values["ntfy_url"].strip():
+        return ConnectionTestOut(ok=False, message="Enter a topic URL first")
+    try:
+        await ntfy.publish(
+            values, "NextPanel test", "Notifications from NextPanel will arrive here.",
+            path="/requests", tags=["tada"],
+        )
+    except (ntfy.NtfyError, ValueError) as exc:
+        return ConnectionTestOut(ok=False, message=str(exc))
+    return ConnectionTestOut(ok=True, message="Test message sent")
 
 
 @router.post("/test/{app}", response_model=ConnectionTestOut)
