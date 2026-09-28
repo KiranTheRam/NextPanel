@@ -26,15 +26,19 @@ log = logging.getLogger("nextpanel")
 async def lifespan(app: FastAPI):
     await init_db()
     await scheduler.start()
-    # Do not make application startup wait on AniList, but start filling the
-    # recommendation cache before the first browser asks for it.
-    discover_warmup = asyncio.create_task(discover_service.warm_sections())
+    # Do not make application startup wait on AniList or pullarr, but start
+    # filling the recommendation caches before the first browser asks.
+    warmups = [
+        asyncio.create_task(discover_service.warm_sections()),
+        asyncio.create_task(discover.warm_comic_rows()),
+    ]
     log.info("NextPanel %s ready on %s:%d", __version__, config.host, config.port)
     try:
         yield
     finally:
-        discover_warmup.cancel()
-        await asyncio.gather(discover_warmup, return_exceptions=True)
+        for task in warmups:
+            task.cancel()
+        await asyncio.gather(*warmups, return_exceptions=True)
         scheduler.shutdown()
         await http_client.aclose()
 

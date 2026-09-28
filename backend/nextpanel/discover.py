@@ -336,7 +336,7 @@ async def _load_and_cache(key: str, fetch):
             async with _cache_lock:
                 stale = _cache.get(key)
             if stale:
-                log.warning("refresh for cached AniList key %s failed; serving stale data", key)
+                log.warning("refresh for cached key %s failed; serving stale data", key)
                 return stale[1]
             raise
         async with _cache_lock:
@@ -384,6 +384,14 @@ async def fetch_section(key: str, variables: dict) -> list[DiscoverItem]:
         return [_to_item(m) for m in (data.get("Page") or {}).get("media") or []]
 
     return await _cached(key, load)
+
+
+async def fetch_comic_releases(pullarr, days: int, first_issues: bool) -> list[dict]:
+    """pullarr's recent-release volumes for a comic row, cached like the
+    AniList rows. A cold load runs as one shared task that finishes (and
+    fills the cache) even when the page that started it stops waiting."""
+    key = f"comics:{pullarr.base_url}:{days}:{first_issues}"
+    return await _cached(key, lambda: pullarr.discover_releases(days, first_issues))
 
 
 async def warm_sections() -> None:

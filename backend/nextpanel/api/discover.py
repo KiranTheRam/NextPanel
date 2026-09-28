@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import settings_service
 from ..arr import ArrClient, ArrError, MangarrClient, PullarrClient
-from ..db import get_session
+from ..db import get_session, session_scope
 from .. import discover as anilist
 from ..discover import DiscoverItem, fetch_section, sections_spec
 from ..library import LibraryIndex, load_index_cached, normalize_title
@@ -22,6 +22,11 @@ router = APIRouter(prefix="/discover", tags=["discover"], dependencies=[Depends(
 
 MAX_ITEMS_PER_SECTION = 20
 SECTION_FETCH_TIMEOUT_SECONDS = 12
+# A comic row waits much longer: pullarr's first load of a row takes about
+# 20 s of rate-limited ComicVine calls. Rows render independently, so the
+# rest of the page is not held up, and the fetch keeps going in the
+# background if even this runs out.
+COMIC_FETCH_TIMEOUT_SECONDS = 90
 LIBRARY_LOOKUP_TIMEOUT_SECONDS = 2
 
 COMIC_SECTIONS = [
@@ -163,13 +168,35 @@ async def _load_comic_entries(
 ) -> list[dict]:
     try:
         return await asyncio.wait_for(
-            pullarr.discover_releases(**params),
-            timeout=SECTION_FETCH_TIMEOUT_SECONDS,
+            anilist.fetch_comic_releases(pullarr, **params),
+            timeout=COMIC_FETCH_TIMEOUT_SECONDS,
         )
-    except (ArrError, TimeoutError) as exc:
+    except TimeoutError:
+        log.warning("discover section %s is still loading from pullarr", key)
+        errors[key] = "New releases are still loading from ComicVine — try again in a minute"
+        return []
+    except ArrError as exc:
         log.warning("discover section %s failed: %r", key, exc)
         errors[key] = "pullarr could not be reached"
         return []
+
+
+async def warm_comic_rows() -> None:
+    """Start pullarr's slow first load of the comic rows at startup, so the
+    first visitor finds them ready (the AniList rows are warmed likewise)."""
+    async with session_scope() as session:
+        values = await settings_service.get_all(session)
+    pullarr = PullarrClient(values["pullarr_url"], values["pullarr_api_key"])
+    if not pullarr.configured:
+        return
+    errors: dict[str, str] = {}
+    await asyncio.gather(*(
+        _load_comic_entries(pullarr, key, params, errors) for key, _title, params in COMIC_SECTIONS
+    ))
+    if errors:
+        log.warning("comic row warm-up incomplete: %s", ", ".join(sorted(errors)))
+    else:
+        log.info("comic recommendation rows warmed")
 
 
 def _manga_sections(

@@ -3,6 +3,7 @@ import json
 import time
 from datetime import date
 
+import httpx
 import pytest
 import respx
 from httpx import Response
@@ -514,3 +515,75 @@ async def test_because_you_requested_row_follows_your_latest_request(client, con
 
     # the admin has requested nothing, so has no such row
     assert (await client.get("/api/v1/discover/sections/because")).json()["sections"] == []
+
+
+def comic_releases(*entries):
+    return Response(200, json=list(entries))
+
+
+@respx.mock
+async def test_slow_comic_row_finishes_in_the_background(client, configured, monkeypatch):
+    from nextpanel.api import discover as discover_api
+
+    monkeypatch.setattr(discover_api, "COMIC_FETCH_TIMEOUT_SECONDS", 0.05)
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+
+    async def cold_pullarr(request):
+        await asyncio.sleep(0.3)  # pullarr's first, rate-limited ComicVine load
+        return comic_releases(comic_entry(10, "Batman (2026)"))
+
+    releases = respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        side_effect=cold_pullarr
+    )
+    first = (await client.get("/api/v1/discover/sections/comics_week")).json()
+    assert first["sections"] == []
+    assert first["errors"] == {
+        "comics_week": "New releases are still loading from ComicVine — try again in a minute"
+    }
+
+    # the page stopped waiting, but the load was not abandoned
+    await asyncio.gather(*discover._inflight.values())
+    second = (await client.get("/api/v1/discover/sections/comics_week")).json()
+    assert second["errors"] == {}
+    assert [i["title"] for i in second["sections"][0]["items"]] == ["Batman (2026)"]
+    assert releases.call_count == 1
+
+
+@respx.mock
+async def test_comic_rows_are_cached_and_given_time(client, configured):
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    releases = respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        return_value=comic_releases(comic_entry(10, "Batman (2026)"))
+    )
+    for _ in range(3):
+        data = (await client.get("/api/v1/discover/sections/comics_week")).json()
+        assert data["errors"] == {} and len(data["sections"]) == 1
+    assert releases.call_count == 1
+    # a cold pullarr load takes ~20 s; the request must not give up at 30
+    assert releases.calls.last.request.extensions["timeout"]["read"] == 120.0
+
+
+@respx.mock
+async def test_comic_rows_are_warmed_at_startup(client, configured):
+    from nextpanel.api.discover import warm_comic_rows
+
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    releases = respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        return_value=comic_releases(comic_entry(10, "Batman (2026)"))
+    )
+    await warm_comic_rows()
+    assert releases.call_count == 2  # both comic rows
+    for key in ("comics_week", "comics_new_series"):
+        data = (await client.get(f"/api/v1/discover/sections/{key}")).json()
+        assert data["sections"][0]["items"][0]["title"] == "Batman (2026)"
+    assert releases.call_count == 2
+
+
+@respx.mock
+async def test_unreachable_pullarr_is_reported(client, configured):
+    respx.get("http://pullarr.test/api/v1/series").mock(return_value=Response(200, json=[]))
+    respx.get("http://pullarr.test/api/v1/discover/releases").mock(
+        side_effect=httpx.ConnectError("refused")
+    )
+    data = (await client.get("/api/v1/discover/sections/comics_week")).json()
+    assert data["errors"] == {"comics_week": "pullarr could not be reached"}
