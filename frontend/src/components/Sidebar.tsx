@@ -55,7 +55,7 @@ export default function Sidebar({ me }: { me: User }) {
   return (
     <div className="sidebar">
       <div className="sidebar-logo">
-        <img className="logo-mark" src="/nextpanel-icon.svg" alt="" />
+        <img className="logo-mark" src="/nextpanel-icon.png" alt="" />
         NextPanel
       </div>
       <nav>

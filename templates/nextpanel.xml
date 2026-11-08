@@ -14,9 +14,14 @@
   <Category>MediaApp:Books</Category>
   <WebUI>http://[IP]:[PORT:6995]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/KiranTheRam/NextPanel/main/templates/nextpanel.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/KiranTheRam/NextPanel/main/frontend/public/nextpanel-icon-192.png</Icon>
+  <Icon>https://raw.githubusercontent.com/KiranTheRam/NextPanel/main/frontend/public/nextpanel-icon.png</Icon>
   <License>GPLv3</License>
   <Config Name="WebUI Port" Target="6995" Default="6995" Mode="tcp" Description="NextPanel web interface port." Type="Port" Display="always" Required="true" Mask="false"/>
   <Config Name="Appdata" Target="/config" Default="/mnt/user/appdata/nextpanel" Mode="rw" Description="Persistent database, sessions, and settings." Type="Path" Display="always" Required="true" Mask="false"/>
   <Config Name="Secure Session Cookie" Target="NEXTPANEL_SESSION_COOKIE_SECURE" Default="false" Description="False for direct local HTTP access. Set true when NextPanel is served over HTTPS, especially for remote access." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Cloudflare Access Team Domain" Target="NEXTPANEL_CLOUDFLARE_ACCESS_TEAM_DOMAIN" Default="" Description="Optional SSO issuer, e.g. https://your-team.cloudflareaccess.com. Set together with the Access audience." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Cloudflare Access Audience" Target="NEXTPANEL_CLOUDFLARE_ACCESS_AUDIENCE" Default="" Description="Optional application audience tag from Cloudflare Access. Both team domain and audience are required for SSO." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Cloudflare Access Admin Emails" Target="NEXTPANEL_CLOUDFLARE_ACCESS_ADMIN_EMAILS" Default="" Description="Optional comma-separated emails granted administrator access after verified SSO login." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Local Login Enabled" Target="NEXTPANEL_LOCAL_LOGIN_ENABLED" Default="true" Description="Keep true while setting up SSO. Set false only after verifying SSO works. Local login stays available if SSO is not configured." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Web Push Contact" Target="NEXTPANEL_VAPID_SUB" Default="mailto:admin@nextpanel.local" Description="Contact URI for the server operator used by browser push services, e.g. mailto:you@example.com." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 </Container>

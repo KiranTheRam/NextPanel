@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/nextpanel-icon.svg" width="160" height="160" alt="NextPanel icon">
+  <img src="frontend/public/nextpanel-icon.png" width="160" height="160" alt="NextPanel icon">
 </p>
 
 # NextPanel
@@ -78,6 +78,32 @@ Then, in **Settings** (admin only):
    `/api/v1/webhooks/pullarr`.
 4. Create accounts for your users under **Users**, or turn on **open
    registration** in Settings if you want people to sign themselves up.
+
+## Unraid
+
+The [NextPanel template](templates/nextpanel.xml) provides the WebUI port,
+appdata mapping, app icon, and optional Cloudflare Access and push-contact settings.
+It uses the same template format as Mangarr and Pullarr.
+
+1. Download `templates/nextpanel.xml` from this repository and copy it to
+   `/boot/config/plugins/dockerMan/templates-user/my-nextpanel.xml` on your
+   Unraid server. This is the [Docker user-template directory](https://docs.unraid.net/unraid-os/manual/applications/).
+2. In **Docker → Add Container**, select **NextPanel** from the template list.
+3. Choose the host port (default **6995**) and appdata location
+   (default `/mnt/user/appdata/nextpanel`), then apply.
+4. Open the container's **WebUI**, create your administrator account, and
+   connect Mangarr and Pullarr in **Settings**. NextPanel needs only `/config`;
+   the download apps retain their own library mounts.
+
+The template defaults to local HTTP with **Secure Session Cookie** set to
+`false`. For HTTPS access, set it to `true`. The advanced SSO fields are
+optional; keep local login enabled until you have verified Cloudflare login.
+Use a shared custom Docker network for container-name URLs, or enter each
+backend's reachable host address and published port in Settings.
+
+The template references the published `kirantheram/nextpanel:latest` image.
+Changes on a development branch take effect after that image is released;
+the template and icon links use this repository's `main` branch.
 
 ## Mobile app (PWA) & push notifications
 
