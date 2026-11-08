@@ -182,3 +182,91 @@ async def test_local_login_stays_available_for_partial_sso_configuration(client,
         "/api/v1/auth/setup", json={"username": "admin", "password": "password1"}
     )
     assert resp.status_code == 201
+
+
+@respx.mock
+async def test_sso_only_account_rejects_dummy_password(client, monkeypatch):
+    _enable_sso(monkeypatch, local_login=True)
+    private_key, public_jwk = _signing_material()
+    respx.get(f"{TEAM_DOMAIN}/cdn-cgi/access/certs").mock(
+        return_value=Response(200, json={"keys": [public_jwk]})
+    )
+    assert (await client.post('/api/v1/auth/sso', headers={
+        'Cf-Access-Jwt-Assertion': _token(private_key, 'owner@example.com')
+    })).status_code == 200
+    await client.post('/api/v1/auth/logout')
+    resp = await client.post('/api/v1/auth/login', json={
+        'username': 'owner@example.com', 'password': 'nextpanel-timing-equalizer'
+    })
+    assert resp.status_code == 401
+    assert (await client.get('/api/v1/auth/me')).status_code == 401
+
+
+@respx.mock
+async def test_sso_does_not_adopt_local_account(client, admin, monkeypatch):
+    from .conftest import register_user
+    await register_user(client, username='victim@example.com')
+    _enable_sso(monkeypatch, local_login=True, admin_emails='victim@example.com')
+    private_key, public_jwk = _signing_material()
+    respx.get(f"{TEAM_DOMAIN}/cdn-cgi/access/certs").mock(
+        return_value=Response(200, json={"keys": [public_jwk]})
+    )
+    resp = await client.post('/api/v1/auth/sso', headers={
+        'Cf-Access-Jwt-Assertion': _token(private_key, 'victim@example.com')
+    })
+    assert resp.status_code == 409
+    assert (await client.get('/api/v1/auth/me')).json()['is_admin'] is False
+
+
+@respx.mock
+async def test_sso_binding_survives_password_reset_and_rejects_new_subject(client, monkeypatch):
+    _enable_sso(monkeypatch, local_login=True)
+    private_key, public_jwk = _signing_material()
+    respx.get(f"{TEAM_DOMAIN}/cdn-cgi/access/certs").mock(
+        return_value=Response(200, json={"keys": [public_jwk]})
+    )
+    headers = {'Cf-Access-Jwt-Assertion': _token(private_key, 'owner@example.com')}
+    user = (await client.post('/api/v1/auth/sso', headers=headers)).json()
+    assert (await client.put(f"/api/v1/users/{user['id']}", json={'password':'newpassword1'})).status_code == 200
+    assert (await client.post('/api/v1/auth/sso', headers=headers)).status_code == 200
+    assert (await client.post('/api/v1/auth/sso', headers={
+        'Cf-Access-Jwt-Assertion': _token(private_key, 'owner@example.com', sub='different-person')
+    })).status_code == 409
+
+
+async def test_legacy_sso_binding_has_only_one_winner(client, admin, monkeypatch):
+    import asyncio
+    import httpx
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from nextpanel.api import auth
+    from nextpanel.db import session_scope
+    from nextpanel.models import User
+    from nextpanel.security import UNUSABLE_PASSWORD_HASH
+    from nextpanel.main import app
+
+    async with session_scope() as session:
+        session.add(User(username='legacy@example.com', password_hash=UNUSABLE_PASSWORD_HASH))
+        await session.commit()
+    _enable_sso(monkeypatch, local_login=True)
+    async def verify(assertion):
+        return {'email':'legacy@example.com', 'iss':TEAM_DOMAIN, 'sub':assertion}
+    monkeypatch.setattr(auth, 'verify_access_token', verify)
+    original_execute = AsyncSession.execute
+    both_read = asyncio.Event()
+    reads = 0
+    async def gated_execute(self, statement, *args, **kwargs):
+        nonlocal reads
+        result = await original_execute(self, statement, *args, **kwargs)
+        if str(statement).startswith('SELECT users.') and 'lower(users.username)' in str(statement):
+            reads += 1
+            if reads == 2:
+                both_read.set()
+            await asyncio.wait_for(both_read.wait(), 5)
+        return result
+    monkeypatch.setattr(AsyncSession, 'execute', gated_execute)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://test') as other:
+        responses = await asyncio.gather(
+            client.post('/api/v1/auth/sso', headers={'Cf-Access-Jwt-Assertion':'subject-a'}),
+            other.post('/api/v1/auth/sso', headers={'Cf-Access-Jwt-Assertion':'subject-b'}),
+        )
+    assert sorted(r.status_code for r in responses) == [200, 409]

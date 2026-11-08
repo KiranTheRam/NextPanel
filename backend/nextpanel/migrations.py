@@ -105,10 +105,22 @@ def _v3_user_auto_approve(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE users ADD COLUMN auto_approve BOOLEAN NOT NULL DEFAULT 0")
 
 
+def _v4_sso_identity(conn: sqlite3.Connection) -> None:
+    if "sso_identity" not in _columns(conn, "users"):
+        conn.execute("ALTER TABLE users ADD COLUMN sso_identity VARCHAR")
+    # Revoke sessions that could have been issued by the old local-login bypass.
+    if _table_exists(conn, "sessions"):
+        conn.execute("DELETE FROM sessions WHERE user_id IN "
+                     "(SELECT id FROM users WHERE password_hash NOT LIKE 'scrypt$%')")
+    # Existing SSO-only accounts may bind on their next verified login.
+    # Local accounts are never linked based on an unverified username.
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _v1_request_uniqueness_includes_provider,
     _v2_request_available_notified,
     _v3_user_auto_approve,
+    _v4_sso_identity,
 ]
 LATEST = len(MIGRATIONS)
 

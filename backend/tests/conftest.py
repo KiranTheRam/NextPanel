@@ -31,6 +31,9 @@ async def clean_db():
 
     while push._pending_sends:
         await asyncio.gather(*list(push._pending_sends), return_exceptions=True)
+        # Completed-task gather may return immediately on Python 3.12; yield
+        # so task done callbacks can remove the retained references.
+        await asyncio.sleep(0)
 
 
 @pytest.fixture

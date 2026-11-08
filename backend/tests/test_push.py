@@ -13,7 +13,7 @@ from .conftest import register_user
 from .test_requests import as_requester, make_request
 
 SUB = {
-    "endpoint": "https://push.example/send/abc123",
+    "endpoint": "https://web.push.apple.com/send/abc123",
     "expirationTime": None,
     "keys": {"p256dh": "pkey", "auth": "akey"},
 }
@@ -45,7 +45,7 @@ async def test_logout_removes_only_this_devices_push_subscription(client, admin)
     assert (await client.post("/api/v1/push/subscribe", json=SUB)).status_code == 204
     other_subscription = {
         **SUB,
-        "endpoint": "https://push.example/send/other-device",
+        "endpoint": "https://web.push.apple.com/send/other-device",
     }
     from nextpanel.main import app
 
@@ -100,6 +100,9 @@ async def _drain_tasks():
     await asyncio.sleep(0)
     while push._pending_sends:
         await asyncio.gather(*list(push._pending_sends), return_exceptions=True)
+        # Completed-task gather may return immediately on Python 3.12; yield
+        # so task done callbacks can remove the retained references.
+        await asyncio.sleep(0)
 
 
 async def test_new_request_notifies_admins(client, admin, monkeypatch):
@@ -200,3 +203,45 @@ async def test_notify_later_holds_the_send_until_it_finishes():
     release.set()
     await _drain_tasks()
     assert not push._pending_sends
+
+
+async def test_unsafe_push_destinations_rejected(client, admin):
+    for endpoint in ['http://127.0.0.1/admin', 'https://localhost/',
+                     'https://web.push.apple.com.evil.example/',
+                     'https://web.push.apple.com@127.0.0.1/',
+                     'https://web.push.apple.com:444/send', 'https://10.0.0.1/',
+                     r'https://127.0.0.1\.push.services.mozilla.com/',
+                     r'https://127.0.0.1\.notify.windows.com/']:
+        assert (await client.post('/api/v1/push/subscribe', json={
+            **SUB, 'endpoint':endpoint
+        })).status_code == 422
+
+
+async def test_stored_unsafe_endpoint_is_not_sent(monkeypatch):
+    def unexpected(**kwargs):
+        raise AssertionError('Unsafe endpoint reached transport')
+    monkeypatch.setattr(push, 'webpush', unexpected)
+    subscription = PushSubscription(endpoint='http://127.0.0.1/admin', p256dh='x', auth='y')
+    assert push._send_sync(subscription, {}) is False
+
+
+async def test_push_transport_disables_redirects(monkeypatch):
+    from requests import Response as RequestsResponse
+    from requests.adapters import BaseAdapter
+    calls = []
+    class RedirectAdapter(BaseAdapter):
+        def send(self, request, **kwargs):
+            calls.append(request.url)
+            response = RequestsResponse()
+            response.status_code = 307
+            response.headers['Location'] = 'http://127.0.0.1/admin'
+            response.request = request
+            response.url = request.url
+            return response
+        def close(self):
+            pass
+    with push._PushSession() as transport:
+        transport.mount('https://', RedirectAdapter())
+        response = transport.post(SUB['endpoint'], data=b'test', allow_redirects=True)
+    assert response.status_code == 307
+    assert calls == [SUB['endpoint']]

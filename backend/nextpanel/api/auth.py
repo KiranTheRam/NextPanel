@@ -1,9 +1,10 @@
 import asyncio
 import logging
+import json
 from datetime import timedelta
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -125,6 +126,7 @@ async def cloudflare_sso(
         raise HTTPException(401, "Invalid Cloudflare Access assertion") from exc
 
     email = _identity_email(claims)
+    identity = json.dumps([claims["iss"], claims["sub"]], separators=(",", ":"))
     result = await session.execute(
         select(User).where(func.lower(User.username) == email)
     )
@@ -134,6 +136,7 @@ async def cloudflare_sso(
         user = User(
             username=email,
             password_hash=UNUSABLE_PASSWORD_HASH,
+            sso_identity=identity,
             is_admin=should_be_admin or await _user_count(session) == 0,
         )
         session.add(user)
@@ -150,7 +153,18 @@ async def cloudflare_sso(
             if user is None:
                 raise
         await session.refresh(user)
-    elif should_be_admin and not user.is_admin:
+    if user.sso_identity != identity:
+        if user.sso_identity is not None or not user.sso_only:
+            raise HTTPException(409, "This username is already in use by another identity")
+        await session.execute(
+            update(User).where(User.id == user.id, User.sso_identity.is_(None))
+            .values(sso_identity=identity)
+        )
+        await session.commit()
+        await session.refresh(user)
+        if user.sso_identity != identity:
+            raise HTTPException(409, "This username is already in use by another identity")
+    if should_be_admin and not user.is_admin:
         user.is_admin = True
         await session.commit()
 
@@ -235,7 +249,7 @@ async def login(
                 else DUMMY_PASSWORD_HASH
             ),
         )
-    if user is None or not password_ok:
+    if user is None or user.sso_only or not password_ok:
         raise HTTPException(401, "Invalid username or password")
     ratelimit.clear(rate_key)
     await _start_session(session, request, response, user)

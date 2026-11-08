@@ -166,7 +166,7 @@ class TitleDetailOut(BaseModel):
 class RequestCreateIn(BaseModel):
     media_type: MediaType
     provider: str
-    provider_id: int
+    provider_id: int = Field(gt=0)
     title: str
     english_title: str = ""
     alt_titles: list[str] = Field(default_factory=list)
