@@ -2222,9 +2222,18 @@ select,
   display: block;
 }
 
-.discover-card:hover img {
+.discover-card:focus-visible img {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+/* Touch scrolling can leave :hover stuck on a card. Only pointing devices
+   with real hover should show this feedback; keyboard focus stays visible. */
+@media (hover: hover) and (pointer: fine) {
+  .discover-card:hover img {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
 }
 
 .discover-card .no-cover {
