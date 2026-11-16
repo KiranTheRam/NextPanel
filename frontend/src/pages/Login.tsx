@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type { AuthStatus } from "../api/types";
 import { LoadError, Spinner } from "../components/common";
 
@@ -16,6 +16,7 @@ export default function Login() {
   const [mode, setMode] = useState<Mode | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [linkPassword, setLinkPassword] = useState("");
   const attemptedSso = useRef(false);
 
   const submit = useMutation({
@@ -25,6 +26,13 @@ export default function Login() {
   const sso = useMutation({
     mutationFn: () => api.post("/auth/sso"),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["me"] }),
+  });
+  const linkSso = useMutation({
+    mutationFn: () => api.post("/auth/sso", { password: linkPassword }),
+    onSuccess: () => {
+      setLinkPassword("");
+      return queryClient.invalidateQueries({ queryKey: ["me"] });
+    },
   });
 
   // A browser that reached NextPanel through Access already has a verified
@@ -45,6 +53,8 @@ export default function Login() {
   }
 
   const effectiveMode: Mode = status.setup_required ? "setup" : (mode ?? "login");
+  const ssoLinkRequired = status.local_login_enabled &&
+    sso.error instanceof ApiError && sso.error.code === "sso_link_required";
   const titles: Record<Mode, string> = {
     setup: "Create the admin account",
     register: "Create your account",
@@ -71,18 +81,39 @@ export default function Login() {
 
         {status.sso_enabled && (
           <div style={{ display: "grid", gap: 10 }}>
-            <button
-              className="btn primary"
-              type="button"
-              disabled={sso.isPending}
-              onClick={() => sso.mutate()}
-            >
-              {sso.isPending ? "Signing in with Cloudflare…" : "Sign in with Cloudflare Access"}
-            </button>
-            {sso.isError && (
+            {ssoLinkRequired ? (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                linkSso.mutate();
+              }} style={{ display: "grid", gap: 10 }}>
+                <label htmlFor="cloudflare-link-password">{sso.error?.message}</label>
+                <input
+                  id="cloudflare-link-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={linkPassword}
+                  onChange={(event) => setLinkPassword(event.target.value)}
+                />
+                {linkSso.isError && <div className="error-banner">{linkSso.error.message}</div>}
+                <button className="btn primary" disabled={!linkPassword || linkSso.isPending}>
+                  {linkSso.isPending ? "Linking account…" : "Link Cloudflare Access"}
+                </button>
+              </form>
+            ) : (
+              <button
+                className="btn primary"
+                type="button"
+                disabled={sso.isPending}
+                onClick={() => sso.mutate()}
+              >
+                {sso.isPending ? "Signing in with Cloudflare…" : "Sign in with Cloudflare Access"}
+              </button>
+            )}
+            {sso.isError && !ssoLinkRequired && (
               <div className="error-banner">
-                {(sso.error as Error).message}. Open this site through its Cloudflare Access
-                hostname and try again.
+                {sso.error.message}.
+                {sso.error instanceof ApiError && sso.error.status === 401 &&
+                  " Open this site through its Cloudflare Access hostname and try again."}
               </div>
             )}
           </div>

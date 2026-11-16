@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import pytest
 import respx
 from cryptography.hazmat.primitives.asymmetric import rsa
 from httpx import Response
@@ -215,7 +216,83 @@ async def test_sso_does_not_adopt_local_account(client, admin, monkeypatch):
         'Cf-Access-Jwt-Assertion': _token(private_key, 'victim@example.com')
     })
     assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "sso_link_required"
     assert (await client.get('/api/v1/auth/me')).json()['is_admin'] is False
+
+
+@respx.mock
+async def test_existing_local_account_can_link_and_sign_in_after_local_login_disabled(client, monkeypatch):
+    password = {"password": "existing-admin-password"}
+    original = await client.post("/api/v1/auth/setup", json={
+        "username": "Owner@Example.com", **password,
+    })
+    assert original.status_code == 201
+    await client.post("/api/v1/auth/logout")
+
+    _enable_sso(monkeypatch)
+    private_key, public_jwk = _signing_material()
+    respx.get(f"{TEAM_DOMAIN}/cdn-cgi/access/certs").mock(
+        return_value=Response(200, json={"keys": [public_jwk]})
+    )
+    headers = {"Cf-Access-Jwt-Assertion": _token(private_key, "owner@example.com")}
+    blocked = await client.post("/api/v1/auth/sso", headers=headers)
+    assert blocked.status_code == 409
+    assert "enable local login" in blocked.json()["detail"]
+    assert (await client.post("/api/v1/auth/sso", headers=headers, json=password)).status_code == 403
+
+    monkeypatch.setattr(config, "local_login_enabled", True)
+    assert (await client.post("/api/v1/auth/sso", json=password)).status_code == 401
+    invalid_assertion = {"Cf-Access-Jwt-Assertion": _token(
+        private_key, "owner@example.com", aud=["different-app"],
+    )}
+    assert (await client.post("/api/v1/auth/sso", headers=invalid_assertion, json=password)).status_code == 401
+    assert (await client.post("/api/v1/auth/sso", headers=headers, json={
+        "password": "wrong-password",
+    })).status_code == 401
+    assert (await client.get("/api/v1/auth/me")).status_code == 401
+
+    linked = await client.post("/api/v1/auth/sso", headers=headers, json=password)
+    assert linked.status_code == 200, linked.text
+    assert linked.json() == original.json()
+    await client.post("/api/v1/auth/logout")
+
+    monkeypatch.setattr(config, "local_login_enabled", False)
+    different_subject = {"Cf-Access-Jwt-Assertion": _token(
+        private_key, "owner@example.com", sub="different-person",
+    )}
+    assert (await client.post("/api/v1/auth/sso", headers=different_subject)).status_code == 409
+    signed_in = await client.post("/api/v1/auth/sso", headers=headers)
+    assert signed_in.status_code == 200, signed_in.text
+    assert (await client.get("/api/v1/auth/me")).json() == original.json()
+
+
+@respx.mock
+async def test_sso_link_attempts_share_the_local_password_limit(client, monkeypatch):
+    from nextpanel.api import auth
+
+    username = "owner@example.com"
+    password = "existing-admin-password"
+    assert (await client.post("/api/v1/auth/setup", json={
+        "username": username, "password": password,
+    })).status_code == 201
+    await client.post("/api/v1/auth/logout")
+    _enable_sso(monkeypatch, local_login=True)
+    monkeypatch.setattr(auth, "LOGIN_LIMIT", 2)
+    private_key, public_jwk = _signing_material()
+    respx.get(f"{TEAM_DOMAIN}/cdn-cgi/access/certs").mock(
+        return_value=Response(200, json={"keys": [public_jwk]})
+    )
+    headers = {"Cf-Access-Jwt-Assertion": _token(private_key, username)}
+
+    assert (await client.post("/api/v1/auth/login", json={
+        "username": username, "password": "wrong-password",
+    })).status_code == 401
+    assert (await client.post("/api/v1/auth/sso", headers=headers, json={
+        "password": "wrong-password",
+    })).status_code == 401
+    assert (await client.post("/api/v1/auth/sso", headers=headers, json={
+        "password": password,
+    })).status_code == 429
 
 
 @respx.mock
@@ -234,18 +311,22 @@ async def test_sso_binding_survives_password_reset_and_rejects_new_subject(clien
     })).status_code == 409
 
 
-async def test_legacy_sso_binding_has_only_one_winner(client, admin, monkeypatch):
+@pytest.mark.parametrize("password", [None, "legacy-password"])
+async def test_legacy_sso_binding_has_only_one_winner(client, admin, monkeypatch, password):
     import asyncio
     import httpx
     from sqlalchemy.ext.asyncio import AsyncSession
     from nextpanel.api import auth
     from nextpanel.db import session_scope
     from nextpanel.models import User
-    from nextpanel.security import UNUSABLE_PASSWORD_HASH
+    from nextpanel.security import UNUSABLE_PASSWORD_HASH, hash_password
     from nextpanel.main import app
 
     async with session_scope() as session:
-        session.add(User(username='legacy@example.com', password_hash=UNUSABLE_PASSWORD_HASH))
+        session.add(User(
+            username="legacy@example.com",
+            password_hash=hash_password(password) if password else UNUSABLE_PASSWORD_HASH,
+        ))
         await session.commit()
     _enable_sso(monkeypatch, local_login=True)
     async def verify(assertion):
@@ -264,9 +345,10 @@ async def test_legacy_sso_binding_has_only_one_winner(client, admin, monkeypatch
             await asyncio.wait_for(both_read.wait(), 5)
         return result
     monkeypatch.setattr(AsyncSession, 'execute', gated_execute)
+    body = {"password": password} if password else None
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://test') as other:
         responses = await asyncio.gather(
-            client.post('/api/v1/auth/sso', headers={'Cf-Access-Jwt-Assertion':'subject-a'}),
-            other.post('/api/v1/auth/sso', headers={'Cf-Access-Jwt-Assertion':'subject-b'}),
+            client.post('/api/v1/auth/sso', headers={'Cf-Access-Jwt-Assertion':'subject-a'}, json=body),
+            other.post('/api/v1/auth/sso', headers={'Cf-Access-Jwt-Assertion':'subject-b'}, json=body),
         )
     assert sorted(r.status_code for r in responses) == [200, 409]

@@ -13,7 +13,7 @@ from ..cloudflare_access import AccessTokenError, verify_access_token
 from ..config import config
 from ..db import get_session
 from ..models import PushSubscription, User, UserSession
-from ..schemas import AuthStatusOut, CredentialsIn, LogoutIn, PasswordChangeIn, UserOut
+from ..schemas import AuthStatusOut, CredentialsIn, LogoutIn, PasswordChangeIn, SsoLinkIn, UserOut
 from ..security import (
     DUMMY_PASSWORD_HASH,
     UNUSABLE_PASSWORD_HASH,
@@ -77,6 +77,27 @@ def _require_local_login() -> None:
         raise HTTPException(403, "Local username/password login is disabled")
 
 
+def _limit_login(request: Request, username: str) -> str:
+    ratelimit.check("login:global", LOGIN_GLOBAL_LIMIT, LOGIN_WINDOW)
+    rate_key = f"login:{ratelimit.client_ip(request)}:{username}"
+    ratelimit.check(rate_key, LOGIN_LIMIT, LOGIN_WINDOW)
+    return rate_key
+
+
+async def _verify_login_password(rate_key: str, password: str, password_hash: str | None) -> None:
+    # scrypt is deliberately expensive. Run it outside the event loop and
+    # fail fast when all workers are occupied.
+    if _PASSWORD_CHECKS.locked():
+        raise HTTPException(429, "Too many login attempts — try again later")
+    async with _PASSWORD_CHECKS:
+        password_ok = await asyncio.to_thread(
+            verify_password, password, password_hash or DUMMY_PASSWORD_HASH
+        )
+    if password_hash is None or not password_ok:
+        raise HTTPException(401, "Invalid username or password")
+    ratelimit.clear(rate_key)
+
+
 def _identity_email(claims: dict) -> str:
     email = str(claims.get("email", "")).strip().lower()
     if (
@@ -107,6 +128,7 @@ async def auth_status(session: AsyncSession = Depends(get_session)):
 async def cloudflare_sso(
     request: Request,
     response: Response,
+    body: SsoLinkIn | None = None,
     session: AsyncSession = Depends(get_session),
 ):
     """Exchange a verified Cloudflare Access assertion for an app session.
@@ -125,6 +147,8 @@ async def cloudflare_sso(
         log.warning("Cloudflare Access assertion rejected: %s", exc)
         raise HTTPException(401, "Invalid Cloudflare Access assertion") from exc
 
+    if body is not None:
+        _require_local_login()
     email = _identity_email(claims)
     identity = json.dumps([claims["iss"], claims["sub"]], separators=(",", ":"))
     result = await session.execute(
@@ -133,6 +157,8 @@ async def cloudflare_sso(
     user = result.scalar_one_or_none()
     should_be_admin = email in config.cloudflare_admin_emails
     if user is None:
+        if body is not None:
+            raise HTTPException(401, "Invalid username or password")
         user = User(
             username=email,
             password_hash=UNUSABLE_PASSWORD_HASH,
@@ -154,14 +180,34 @@ async def cloudflare_sso(
                 raise
         await session.refresh(user)
     if user.sso_identity != identity:
-        if user.sso_identity is not None or not user.sso_only:
+        if user.sso_identity is not None:
             raise HTTPException(409, "This username is already in use by another identity")
+        password_hash = user.password_hash
+        if body is not None:
+            await _verify_login_password(
+                _limit_login(request, email), body.password, None if user.sso_only else password_hash
+            )
+        elif not user.sso_only:
+            if not config.local_login_available:
+                raise HTTPException(
+                    409, "Ask an admin to enable local login so you can link this account"
+                )
+            raise HTTPException(409, {
+                "code": "sso_link_required",
+                "message": "Enter your NextPanel password to link your existing account",
+            })
+        # A racing link or password reset can invalidate the proof we just checked.
         await session.execute(
-            update(User).where(User.id == user.id, User.sso_identity.is_(None))
-            .values(sso_identity=identity)
+            update(User).where(
+                User.id == user.id,
+                User.sso_identity.is_(None),
+                User.password_hash == password_hash,
+            ).values(sso_identity=identity)
         )
         await session.commit()
         await session.refresh(user)
+        if user.sso_identity is None:
+            raise HTTPException(409, "The account changed while linking. Try again")
         if user.sso_identity != identity:
             raise HTTPException(409, "This username is already in use by another identity")
     if should_be_admin and not user.is_admin:
@@ -229,29 +275,14 @@ async def login(
 ):
     _require_local_login()
     username = body.username.strip().lower()
-    ratelimit.check("login:global", LOGIN_GLOBAL_LIMIT, LOGIN_WINDOW)
-    rate_key = f"login:{ratelimit.client_ip(request)}:{username}"
-    ratelimit.check(rate_key, LOGIN_LIMIT, LOGIN_WINDOW)
+    rate_key = _limit_login(request, username)
     result = await session.execute(
         select(User).where(func.lower(User.username) == username)
     )
     user = result.scalar_one_or_none()
-    # scrypt is deliberately expensive.  Run it outside the event loop and
-    # fail fast when all workers are occupied rather than accumulating work.
-    if _PASSWORD_CHECKS.locked():
-        raise HTTPException(429, "Too many login attempts — try again later")
-    async with _PASSWORD_CHECKS:
-        password_ok = await asyncio.to_thread(
-            verify_password, body.password,
-            (
-                user.password_hash
-                if user is not None and not user.sso_only
-                else DUMMY_PASSWORD_HASH
-            ),
-        )
-    if user is None or user.sso_only or not password_ok:
-        raise HTTPException(401, "Invalid username or password")
-    ratelimit.clear(rate_key)
+    await _verify_login_password(
+        rate_key, body.password, user.password_hash if user and not user.sso_only else None
+    )
     await _start_session(session, request, response, user)
     return user
 

@@ -207,6 +207,8 @@ async def test_notify_later_holds_the_send_until_it_finishes():
 
 async def test_unsafe_push_destinations_rejected(client, admin):
     for endpoint in ['http://127.0.0.1/admin', 'https://localhost/',
+                     'https://push.apple.com/', 'https://evilpush.apple.com/',
+                     'https://.push.apple.com/', 'https://region..push.apple.com/',
                      'https://web.push.apple.com.evil.example/',
                      'https://web.push.apple.com@127.0.0.1/',
                      'https://web.push.apple.com:444/send', 'https://10.0.0.1/',
@@ -215,6 +217,22 @@ async def test_unsafe_push_destinations_rejected(client, admin):
         assert (await client.post('/api/v1/push/subscribe', json={
             **SUB, 'endpoint':endpoint
         })).status_code == 422
+
+
+async def test_apple_push_subdomain_can_subscribe_and_receive_notifications(client, admin, monkeypatch):
+    endpoint = "https://edge-1.region.push.apple.com/send/abc123"
+    assert (await client.post("/api/v1/push/subscribe", json={
+        **SUB, "endpoint": endpoint,
+    })).status_code == 204
+
+    delivered = []
+
+    def capture_delivery(**kwargs):
+        delivered.append(kwargs["subscription_info"]["endpoint"])
+
+    monkeypatch.setattr(push, "webpush", capture_delivery)
+    await push.push_to_users([admin["id"]], "Test", "Test notification")
+    assert delivered == [endpoint]
 
 
 async def test_stored_unsafe_endpoint_is_not_sent(monkeypatch):

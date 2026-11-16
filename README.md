@@ -219,16 +219,25 @@ and user identity. It does not trust an email header by itself.
      NEXTPANEL_LOCAL_LOGIN_ENABLED: "true"
    ```
 
-4. Visit NextPanel using the Cloudflare-protected hostname. NextPanel signs
-   you in automatically. On an empty database, the first SSO identity is the
-   admin. On an existing installation, an SSO email matching a local username
-   uses that account; otherwise a new non-admin profile is created. The
-   optional admin-email variable also promotes matching identities.
-5. After verifying SSO and admin access, set
-   `NEXTPANEL_LOCAL_LOGIN_ENABLED: "false"` and recreate the container. This
-   removes and rejects every username/password entry point. The flag only
-   takes effect when both valid-looking SSO settings are present, which avoids
-   disabling local login due to an incomplete configuration.
+4. Visit NextPanel using the Cloudflare-protected hostname. On an empty
+   database, the first SSO identity becomes the admin. On an existing
+   installation, a matching local username prompts for the current NextPanel
+   password once. Linking keeps the same profile and enables automatic SSO
+   on future visits. If the email has no matching username, NextPanel creates
+   a new non-admin profile. The optional admin-email variable promotes
+   matching identities after sign-in.
+5. After users have linked their accounts and you have verified SSO and admin
+   access, set `NEXTPANEL_LOCAL_LOGIN_ENABLED: "false"` and recreate the
+   container. This removes and rejects every username/password entry point.
+   The flag only takes effect when both valid-looking SSO settings are present,
+   which avoids disabling local login due to an incomplete configuration.
+
+If an existing user gets a linking error after local login was disabled,
+temporarily set `NEXTPANEL_LOCAL_LOGIN_ENABLED: "true"` and recreate the
+container. Have the user open the Cloudflare-protected sign-in page and choose
+**Link Cloudflare Access** after entering their current NextPanel password.
+Users with an existing NextPanel session can open the sign-in page in a private
+window. Once the accounts are linked, you can disable local login again.
 
 Cloudflare normally protects the webhook URLs too. Mangarr and pullarr do not
 currently send Cloudflare Access credentials, so create a more-specific
