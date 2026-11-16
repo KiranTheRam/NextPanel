@@ -132,3 +132,18 @@ def test_failed_step_rolls_back_only_itself(tmp_path, monkeypatch):
         assert ("media_type", "provider", "provider_id") in (
             migrations._unique_column_sets(conn, "requests")
         )
+
+
+def test_sso_upgrade_revokes_only_sso_sessions(tmp_path):
+    db = tmp_path / 'nextpanel.db'
+    legacy_database(db)
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("UPDATE users SET password_hash='scrypt$local$hash' WHERE id=1")
+        conn.execute("INSERT INTO users VALUES (2, 'sso@example.com', 'disabled$cloudflare-access', 0, '2026-01-01')")
+        for user_id, token in [(1, 'local-session'), (2, 'sso-session')]:
+            conn.execute("INSERT INTO sessions VALUES (?, ?, '2026-01-01', '2027-01-01')", (token, user_id))
+        conn.commit()
+    migrations.migrate(db)
+    with closing(sqlite3.connect(db)) as conn:
+        assert conn.execute('SELECT token FROM sessions').fetchall() == [('local-session',)]
+        assert conn.execute('SELECT sso_identity FROM users').fetchall() == [(None,), (None,)]

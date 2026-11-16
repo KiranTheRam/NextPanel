@@ -13,9 +13,11 @@ export function appVersion(): string {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -27,13 +29,19 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
   if (!resp.ok) {
     let detail = resp.statusText;
+    let code: string | undefined;
     try {
       const data = await resp.json();
-      detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+      if (typeof data.detail?.message === "string" && typeof data.detail?.code === "string") {
+        detail = data.detail.message;
+        code = data.detail.code;
+      } else {
+        detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+      }
     } catch {
       /* not json */
     }
-    throw new ApiError(resp.status, detail);
+    throw new ApiError(resp.status, detail, code);
   }
   if (resp.status === 204) return undefined as T;
   return resp.json();

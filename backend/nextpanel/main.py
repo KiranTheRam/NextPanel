@@ -63,10 +63,43 @@ _CSP = (
 MAX_REQUEST_BODY_BYTES = 64 * 1024
 
 
+class RequestBodyLimit:
+    """Bound actual bytes before FastAPI buffers or parses a request body."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        messages = []
+        size = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            size += len(message.get("body", b""))
+            if size > MAX_REQUEST_BODY_BYTES:
+                response = JSONResponse({"detail": "Request body too large"}, status_code=413)
+                return await response(scope, receive, send)
+            messages.append(message)
+            if not message.get("more_body", False):
+                break
+        pending = iter(messages)
+
+        async def bounded_receive():
+            return next(pending, None) or await receive()
+
+        await self.app(scope, bounded_receive, send)
+
+
+app.add_middleware(RequestBodyLimit)
+
+
 @app.middleware("http")
 async def security_headers(request, call_next):
     # Reject oversized declared bodies before JSON parsing or password work.
-    # Cloudflare should enforce the same limit at the edge for chunked bodies.
+    # RequestBodyLimit also counts streamed bytes before JSON parsing.
     content_length = request.headers.get("content-length")
     if content_length:
         try:

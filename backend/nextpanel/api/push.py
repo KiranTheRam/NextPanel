@@ -7,6 +7,7 @@ from ..config import config
 from ..db import get_session
 from ..models import PushSubscription, User
 from ..schemas import PushSubscriptionIn
+from ..security import safe_push_endpoint
 from .deps import get_current_user
 
 router = APIRouter(prefix="/push", tags=["push"])
@@ -25,6 +26,8 @@ async def subscribe(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
+    if not safe_push_endpoint(body.endpoint):
+        raise HTTPException(422, "Unsupported push service endpoint")
     if not body.keys.get("p256dh") or not body.keys.get("auth"):
         raise HTTPException(422, "Subscription is missing encryption keys")
     existing = (await session.execute(

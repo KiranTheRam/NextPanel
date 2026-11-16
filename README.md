@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/nextpanel-icon.svg" width="160" height="160" alt="NextPanel icon">
+  <img src="frontend/public/nextpanel-icon.png" width="160" height="160" alt="NextPanel icon">
 </p>
 
 # NextPanel
@@ -7,7 +7,7 @@
 Overseerr-style **request manager** for your manga/comics stack. Users search
 for manga and western comics, request them, and an admin approves or denies
 each request from one place. Approved requests are sent to the right backend —
-[mangarr](../mangarr) for manga, [pullarr](../pullarr) for comics — which adds
+[Mangarr](https://github.com/KiranTheRam/Mangarr) for manga, [Pullarr](https://github.com/KiranTheRam/Pullarr) for comics — which adds
 the series, monitors it, and starts downloading immediately. NextPanel then
 tracks each request through **Processing → Partially Available → Available**
 via webhooks from both apps (with scheduled polling as a fallback).
@@ -58,7 +58,8 @@ via webhooks from both apps (with scheduled polling as a fallback).
 ## Quick start (Docker)
 
 ```bash
-git clone <this repo> nextpanel && cd nextpanel
+git clone https://github.com/KiranTheRam/NextPanel.git nextpanel
+cd nextpanel
 docker compose up -d
 ```
 
@@ -78,6 +79,32 @@ Then, in **Settings** (admin only):
    `/api/v1/webhooks/pullarr`.
 4. Create accounts for your users under **Users**, or turn on **open
    registration** in Settings if you want people to sign themselves up.
+
+## Unraid
+
+The [NextPanel template](templates/nextpanel.xml) provides the WebUI port,
+appdata mapping, app icon, and optional Cloudflare Access and push-contact settings.
+It uses the same template format as Mangarr and Pullarr.
+
+1. Download `templates/nextpanel.xml` from this repository and copy it to
+   `/boot/config/plugins/dockerMan/templates-user/my-nextpanel.xml` on your
+   Unraid server. This is the [Docker user-template directory](https://docs.unraid.net/unraid-os/manual/applications/).
+2. In **Docker → Add Container**, select **NextPanel** from the template list.
+3. Choose the host port (default **6995**) and appdata location
+   (default `/mnt/user/appdata/nextpanel`), then apply.
+4. Open the container's **WebUI**, create your administrator account, and
+   connect Mangarr and Pullarr in **Settings**. NextPanel needs only `/config`;
+   the download apps retain their own library mounts.
+
+The template defaults to local HTTP with **Secure Session Cookie** set to
+`false`. For HTTPS access, set it to `true`. The advanced SSO fields are
+optional; keep local login enabled until you have verified Cloudflare login.
+Use a shared custom Docker network for container-name URLs, or enter each
+backend's reachable host address and published port in Settings.
+
+The template references the published `kirantheram/nextpanel:latest` image.
+Changes on a development branch take effect after that image is released;
+the template and icon links use this repository's `main` branch.
 
 ## Mobile app (PWA) & push notifications
 
@@ -193,16 +220,37 @@ and user identity. It does not trust an email header by itself.
      NEXTPANEL_LOCAL_LOGIN_ENABLED: "true"
    ```
 
-4. Visit NextPanel using the Cloudflare-protected hostname. NextPanel signs
-   you in automatically. On an empty database, the first SSO identity is the
-   admin. On an existing installation, an SSO email matching a local username
-   uses that account; otherwise a new non-admin profile is created. The
-   optional admin-email variable also promotes matching identities.
-5. After verifying SSO and admin access, set
-   `NEXTPANEL_LOCAL_LOGIN_ENABLED: "false"` and recreate the container. This
-   removes and rejects every username/password entry point. The flag only
-   takes effect when both valid-looking SSO settings are present, which avoids
-   disabling local login due to an incomplete configuration.
+4. Visit NextPanel using the Cloudflare-protected hostname. On an empty
+   database, the first SSO identity becomes the admin. On an existing
+   installation, a matching local username prompts for the current NextPanel
+   password once. Linking keeps the same profile and enables automatic SSO
+   on future visits. If the email has no matching username, NextPanel creates
+   a new non-admin profile. The optional admin-email variable promotes
+   matching identities after sign-in.
+5. After users have linked their accounts and you have verified SSO and admin
+   access, set `NEXTPANEL_LOCAL_LOGIN_ENABLED: "false"` and recreate the
+   container. This removes and rejects every username/password entry point.
+   The flag only takes effect when both valid-looking SSO settings are present,
+   which avoids disabling local login due to an incomplete configuration.
+
+If an existing user gets a linking error after local login was disabled,
+temporarily set `NEXTPANEL_LOCAL_LOGIN_ENABLED: "true"` and recreate the
+container. Have the user open the Cloudflare-protected sign-in page and choose
+**Link Cloudflare Access** after entering their current NextPanel password.
+Users with an existing NextPanel session can open the sign-in page in a private
+window. Once the accounts are linked, you can disable local login again.
+
+If the administrator has forgotten their NextPanel password, an operator with
+container access can reset it using the exact existing username, including its
+capitalization. Replace `nextpanel` with your container name if it differs.
+
+```bash
+docker exec -it nextpanel python -m nextpanel.reset_password 'you@example.com'
+```
+
+The command prompts for a new password and revokes that account's NextPanel
+sessions. Run it before re-enabling local login, then follow the linking steps
+above using the new password.
 
 Cloudflare normally protects the webhook URLs too. Mangarr and pullarr do not
 currently send Cloudflare Access credentials, so create a more-specific

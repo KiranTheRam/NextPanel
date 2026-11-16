@@ -8,7 +8,7 @@ manga, or the app's own metadata search for providers with no by-id lookup.
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import settings_service
@@ -145,6 +145,8 @@ def _from_request(request: Request) -> TitleDetailOut:
 
 
 def _base36(number: int) -> str:
+    if number < 0:
+        raise ValueError("Provider IDs cannot be negative")
     digits = "0123456789abcdefghijklmnopqrstuvwxyz"
     out = ""
     while True:
@@ -166,7 +168,7 @@ def _links(provider: str, provider_id: int, series: dict | None,
     links = []
     if "anilist" in ids:
         links.append(LinkOut(label="AniList", url=f"https://anilist.co/manga/{ids['anilist']}"))
-    if "mangaupdates" in ids:
+    if ids.get("mangaupdates", 0) > 0:
         # MangaUpdates' site addresses series by the API id in base 36
         links.append(LinkOut(
             label="MangaUpdates",
@@ -195,7 +197,7 @@ def _cards(items, library: LibraryIndex, requests: RequestIndex) -> list[TitleCa
 async def title_detail(
     media_type: MediaType,
     provider: str,
-    provider_id: int,
+    provider_id: int = Path(gt=0),
     title: str = Query(default="", max_length=200, description="title hint for by-title lookups"),
     session: AsyncSession = Depends(get_session),
 ):
