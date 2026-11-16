@@ -239,6 +239,18 @@ container. Have the user open the Cloudflare-protected sign-in page and choose
 Users with an existing NextPanel session can open the sign-in page in a private
 window. Once the accounts are linked, you can disable local login again.
 
+If the administrator has forgotten their NextPanel password, an operator with
+container access can reset it using the exact existing username, including its
+capitalization. Replace `nextpanel` with your container name if it differs.
+
+```bash
+docker exec -it nextpanel python -m nextpanel.reset_password 'you@example.com'
+```
+
+The command prompts for a new password and revokes that account's NextPanel
+sessions. Run it before re-enabling local login, then follow the linking steps
+above using the new password.
+
 Cloudflare normally protects the webhook URLs too. Mangarr and pullarr do not
 currently send Cloudflare Access credentials, so create a more-specific
 self-hosted Access application for `/api/v1/webhooks/*` with a Bypass policy,

@@ -1,3 +1,7 @@
+import asyncio
+
+from nextpanel import reset_password
+
 from .conftest import register_user, set_settings
 
 
@@ -142,3 +146,24 @@ async def test_change_password_requires_login(client):
         "current_password": "hunter22", "new_password": "newpassword1",
     })
     assert resp.status_code == 401
+
+
+async def test_operator_password_reset_revokes_sessions_and_preserves_profile(
+    client, admin, monkeypatch, capsys,
+):
+    password = "operator-reset-password"
+    monkeypatch.setattr(reset_password, "getpass", lambda prompt: password)
+    await asyncio.to_thread(reset_password.main, [admin["username"]])
+
+    output = capsys.readouterr()
+    assert "Password reset" in output.out
+    assert password not in output.out + output.err
+    assert (await client.get("/api/v1/auth/me")).status_code == 401
+    assert (await client.post("/api/v1/auth/login", json={
+        "username": admin["username"], "password": "hunter22",
+    })).status_code == 401
+    signed_in = await client.post("/api/v1/auth/login", json={
+        "username": admin["username"], "password": password,
+    })
+    assert signed_in.status_code == 200
+    assert signed_in.json() == admin

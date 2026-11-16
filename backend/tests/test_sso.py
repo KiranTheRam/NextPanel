@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -221,7 +222,10 @@ async def test_sso_does_not_adopt_local_account(client, admin, monkeypatch):
 
 
 @respx.mock
-async def test_existing_local_account_can_link_and_sign_in_after_local_login_disabled(client, monkeypatch):
+@pytest.mark.parametrize("forgot_password", [False, True])
+async def test_existing_local_account_can_link_and_sign_in_after_local_login_disabled(
+    client, monkeypatch, forgot_password,
+):
     password = {"password": "existing-admin-password"}
     original = await client.post("/api/v1/auth/setup", json={
         "username": "Owner@Example.com", **password,
@@ -239,6 +243,13 @@ async def test_existing_local_account_can_link_and_sign_in_after_local_login_dis
     assert blocked.status_code == 409
     assert "enable local login" in blocked.json()["detail"]
     assert (await client.post("/api/v1/auth/sso", headers=headers, json=password)).status_code == 403
+
+    if forgot_password:
+        from nextpanel import reset_password
+
+        password = {"password": "recovered-admin-password"}
+        monkeypatch.setattr(reset_password, "getpass", lambda prompt: password["password"])
+        await asyncio.to_thread(reset_password.main, ["Owner@Example.com"])
 
     monkeypatch.setattr(config, "local_login_enabled", True)
     assert (await client.post("/api/v1/auth/sso", json=password)).status_code == 401
@@ -313,7 +324,6 @@ async def test_sso_binding_survives_password_reset_and_rejects_new_subject(clien
 
 @pytest.mark.parametrize("password", [None, "legacy-password"])
 async def test_legacy_sso_binding_has_only_one_winner(client, admin, monkeypatch, password):
-    import asyncio
     import httpx
     from sqlalchemy.ext.asyncio import AsyncSession
     from nextpanel.api import auth
