@@ -1131,20 +1131,19 @@ h4.link-text:hover {
    ========================================================================== */
 
 @media (max-width: 768px) {
-  :root {
-    --bottom-nav-height: 56px;
-    --bottom-nav-safe-area: env(safe-area-inset-bottom, 0px);
-    --bottom-nav-total-height: calc(
-      var(--bottom-nav-height) + var(--bottom-nav-safe-area)
-    );
-    /* Some iOS standalone views end the layout viewport above the home
-       indicator even with viewport-fit=cover. Extend the bar through that
-       exposed inset instead of leaving a second strip of page background. */
-    --bottom-nav-bottom-offset: calc(0px - var(--bottom-nav-safe-area));
+  html:has(.app) {
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   .app {
-    height: 100%;
+    /* Let the page content scroll inside the shell. Fixed positioning can
+       shift when iOS updates the Home Screen app viewport during scrolling. */
+    flex-direction: column-reverse;
+  }
+
+  .app > .main {
+    min-height: 0;
   }
 
   input,
@@ -1183,23 +1182,16 @@ h4.link-text:hover {
   /* ----- sidebar becomes a bottom tab bar ----- */
 
   .sidebar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: var(--bottom-nav-bottom-offset);
-    z-index: 50;
+    --bottom-nav-safe-area: env(safe-area-inset-bottom, 0px);
+    flex: none;
     width: auto;
     min-width: 0;
-    height: var(--bottom-nav-total-height);
-    padding-bottom: var(--bottom-nav-safe-area);
+    height: calc(56px + var(--bottom-nav-safe-area));
+    padding: 0 env(safe-area-inset-right, 0px) var(--bottom-nav-safe-area)
+      env(safe-area-inset-left, 0px);
     flex-direction: row;
     border-right: none;
     border-top: 1px solid var(--border);
-    background: rgba(34, 38, 47, 0.96);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
-    overscroll-behavior: none;
-    touch-action: none;
   }
 
   .sidebar-logo,
@@ -1264,11 +1256,6 @@ h4.link-text:hover {
     padding: 0 6px;
     font-size: 10px;
     line-height: 16px;
-  }
-
-  /* keep scrolling content clear of the fixed tab bar */
-  .main {
-    padding-bottom: var(--bottom-nav-height);
   }
 
   /* ----- toolbar ----- */
@@ -2036,37 +2023,6 @@ select,
 /* ---------- mobile layout ---------- */
 
 @media (max-width: 768px) {
-  .app {
-    flex-direction: column-reverse;
-  }
-
-  /* the sidebar becomes a bottom tab bar */
-  .sidebar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: var(--bottom-nav-bottom-offset);
-    width: 100%;
-    min-width: 0;
-    flex-direction: row;
-    border-right: none;
-    border-top: 1px solid var(--border);
-    height: var(--bottom-nav-total-height);
-    padding-bottom: var(--bottom-nav-safe-area);
-    z-index: 60;
-  }
-
-  .sidebar-logo,
-  .sidebar-footer {
-    display: none;
-  }
-
-  .sidebar nav {
-    display: flex;
-    flex: 1;
-    padding-top: 0;
-  }
-
   .nav-item {
     flex: 1;
     flex-direction: column;
@@ -2095,10 +2051,6 @@ select,
     padding: 0 5px;
     min-width: 16px;
     line-height: 16px;
-  }
-
-  .main {
-    height: 100%;
   }
 
   .toolbar {
