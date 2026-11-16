@@ -2072,12 +2072,10 @@ select,
     padding: 8px 0 9px;
     font-size: 10.5px;
     border-left: none;
-    border-top: 3px solid transparent;
     position: relative;
   }
 
   .nav-item.active {
-    border-top-color: var(--accent);
     background: none;
   }
 
