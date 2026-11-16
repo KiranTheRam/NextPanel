@@ -7,7 +7,7 @@
 Overseerr-style **request manager** for your manga/comics stack. Users search
 for manga and western comics, request them, and an admin approves or denies
 each request from one place. Approved requests are sent to the right backend —
-[mangarr](../mangarr) for manga, [pullarr](../pullarr) for comics — which adds
+[Mangarr](https://github.com/KiranTheRam/Mangarr) for manga, [Pullarr](https://github.com/KiranTheRam/Pullarr) for comics — which adds
 the series, monitors it, and starts downloading immediately. NextPanel then
 tracks each request through **Processing → Partially Available → Available**
 via webhooks from both apps (with scheduled polling as a fallback).
@@ -58,7 +58,8 @@ via webhooks from both apps (with scheduled polling as a fallback).
 ## Quick start (Docker)
 
 ```bash
-git clone <this repo> nextpanel && cd nextpanel
+git clone https://github.com/KiranTheRam/NextPanel.git nextpanel
+cd nextpanel
 docker compose up -d
 ```
 
