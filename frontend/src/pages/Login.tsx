@@ -60,7 +60,7 @@ export default function Login() {
     <div className="login-wrap">
       <div className="login-card">
         <div className="login-logo">
-          <img src="/nextpanel-icon.png" alt="" />
+          <img src="/nextpanel-icon-v10.png" alt="" />
           NextPanel
         </div>
         <p style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center" }}>

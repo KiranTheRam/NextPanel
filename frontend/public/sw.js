@@ -95,8 +95,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || "NextPanel", {
       body: data.body || "",
-      icon: "/nextpanel-icon-192.png",
-      badge: "/nextpanel-icon-192.png",
+      icon: "/nextpanel-icon-v10-192.png",
+      badge: "/nextpanel-icon-v10-192.png",
       data: { url: data.url || "/" },
     }),
   );
