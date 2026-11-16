@@ -20,6 +20,10 @@ class CredentialsIn(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class SsoLinkIn(BaseModel):
+    password: str = Field(min_length=8, max_length=128)
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -166,7 +170,7 @@ class TitleDetailOut(BaseModel):
 class RequestCreateIn(BaseModel):
     media_type: MediaType
     provider: str
-    provider_id: int
+    provider_id: int = Field(gt=0)
     title: str
     english_title: str = ""
     alt_titles: list[str] = Field(default_factory=list)

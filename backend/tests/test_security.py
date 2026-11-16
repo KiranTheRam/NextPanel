@@ -190,3 +190,29 @@ async def test_password_change_signs_out_other_devices(client, admin):
 
         assert (await other_device.get("/api/v1/auth/me")).status_code == 401
         assert (await client.get("/api/v1/auth/me")).status_code == 200
+
+
+async def test_streamed_body_limit_without_content_length(client):
+    async def body():
+        yield b'{"username":"'
+        for _ in range(65):
+            yield b'x' * 1024
+        yield b'","password":"password1"}'
+    resp = await client.post('/api/v1/auth/login', content=body(),
+                             headers={'content-type':'application/json'})
+    assert resp.status_code == 413
+
+
+async def test_negative_provider_ids_rejected(client, admin):
+    assert (await client.post('/api/v1/requests', json={
+        'media_type':'manga', 'provider':'mangaupdates', 'provider_id':-1, 'title':'Bad'
+    })).status_code == 422
+    assert (await client.get('/api/v1/detail/manga/mangaupdates/-1')).status_code == 422
+    from nextpanel.api.detail import _base36, _links
+    import pytest
+    with pytest.raises(ValueError):
+        _base36(-1)
+    assert _base36(36) == '10'
+    assert _links('mangaupdates', -1, None, None) == []
+    assert all(link.label != 'MangaUpdates' for link in
+               _links('anilist', 1, {'mangaupdates_id':-1}, None))

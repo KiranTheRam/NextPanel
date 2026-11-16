@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import secrets
+import re
 from urllib.parse import urlparse
 
 _SCRYPT_N = 2**14
@@ -78,3 +79,27 @@ def safe_cover_url(value: str) -> str:
     if any(host.endswith(suffix) for suffix in _COVER_HOST_SUFFIXES):
         return value
     return ""
+
+
+_PUSH_HOSTNAME = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]+")
+
+
+def safe_push_endpoint(value: str) -> bool:
+    """Only browser push providers may receive server-side notifications."""
+    try:
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower()
+        return (
+            not any(c.isspace() or ord(c) < 32 for c in value)
+            and _PUSH_HOSTNAME.fullmatch(host) is not None
+            and "\\" not in value
+            and parsed.scheme == "https"
+            and parsed.port in (None, 443)
+            and parsed.username is None and parsed.password is None and not parsed.fragment
+            and (host == "fcm.googleapis.com"
+                 or host.endswith(".push.apple.com")
+                 or host.endswith(".push.services.mozilla.com")
+                 or host.endswith(".notify.windows.com"))
+        )
+    except (ValueError, TypeError):
+        return False

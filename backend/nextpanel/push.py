@@ -14,11 +14,14 @@ from urllib.parse import quote, urlencode
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from requests import Session
+
 from pywebpush import WebPushException, webpush
 from sqlalchemy import delete, select
 
 from . import ntfy
 from .config import config
+from .security import safe_push_endpoint
 from .db import session_scope
 from .models import IssueKind, MediaType, PushSubscription, User
 
@@ -54,19 +57,29 @@ def public_key_b64() -> str:
     return base64.urlsafe_b64encode(point).rstrip(b"=").decode()
 
 
+class _PushSession(Session):
+    def request(self, method, url, **kwargs):
+        kwargs["allow_redirects"] = False
+        return super().request(method, url, **kwargs)
+
+
 def _send_sync(subscription: PushSubscription, payload: dict) -> bool:
     """Blocking delivery; returns False when the subscription is gone."""
+    if not safe_push_endpoint(subscription.endpoint):
+        return False
     try:
-        webpush(
-            subscription_info={
-                "endpoint": subscription.endpoint,
-                "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
-            },
-            data=json.dumps(payload),
-            vapid_private_key=str(_key_path()),
-            vapid_claims={"sub": config.vapid_sub},
-            timeout=10,
-        )
+        with _PushSession() as transport:
+            webpush(
+                subscription_info={
+                    "endpoint": subscription.endpoint,
+                    "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
+                },
+                data=json.dumps(payload),
+                vapid_private_key=str(_key_path()),
+                vapid_claims={"sub": config.vapid_sub},
+                timeout=10,
+                requests_session=transport,
+            )
         return True
     except WebPushException as exc:
         status = exc.response.status_code if exc.response is not None else None
