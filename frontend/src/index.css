@@ -2020,6 +2020,17 @@ select,
   min-width: 640px;
 }
 
+/* Home Screen apps have no browser toolbar to resize around. On iOS the
+   dynamic viewport can omit a status-bar-sized strip on cold launch. Use
+   the large viewport for the installed app shell and keep its safe insets. */
+@media (max-width: 768px) and (display-mode: standalone) {
+  html:has(.app),
+  html:has(.app) body,
+  html:has(.app) #root {
+    height: 100lvh;
+  }
+}
+
 /* ---------- mobile layout ---------- */
 
 @media (max-width: 768px) {
